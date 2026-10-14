@@ -1,61 +1,51 @@
 # Agent Workflows
 
-Fifty selectable workflow and principle skills adapted from [Lauren Tan's pstack](https://github.com/poteto/plugins/tree/74dd2291e8e37b12fd6dc49b2acbd655c6bdaf12/pstack), with installation adapters for Codex and Claude Code.
+[pstack](https://github.com/cursor/plugins/tree/main/pstack), Lauren Tan's skills for Cursor, ported to Claude Code and Codex. One model registry routes each role to either CLI, so every call bills the subscription of the CLI that runs it.
 
-Choose individual skills. Installation defaults to manual invocation; automatically eligible workflows can be enabled individually. The package does not replace global instructions, change native agent profiles, install connectors, or publish anything.
+## Install
 
-## Choose and install
-
-Requires Python 3.11 or newer. No Python packages, network access, or model calls are required by the installer. The optional decision-log helper requires a POSIX host because it uses file locking.
-
-List the [complete catalog](CATALOG.md):
+Requires Python 3.11 or newer. Some playbook scripts need `bun` or `node`.
 
 ```sh
 python3 install.py --list
+python3 install.py --runtime claude --skills all --dry-run
+python3 install.py --runtime claude --skills all
+python3 install.py --runtime codex --skills all
 ```
 
-Prepare a Codex installation with Arena and TDD automatic, and How manual:
+Each install writes:
 
-```sh
-python3 install.py --runtime codex --skills arena,tdd,how --auto arena,tdd --dry-run
-python3 install.py --runtime codex --skills arena,tdd,how --auto arena,tdd
+- The selected skills to `~/.claude/skills` or `~/.codex/skills` (`--dest` for another directory).
+- The `poteto-agent` and `comment-sicko` agents to `~/.claude/agents` or `~/.codex/agents`.
+- `aw-run` to `~/.local/bin`.
+- The model registry to `~/.config/agent-workflows/models.toml`, only when it does not exist yet.
+
+Skills keep upstream's invocation setting. Most are manual, so invoke them as `/name` in Claude Code and `$name` in Codex. `--auto name,...` lets the model pick selected skills on its own. `--force` replaces installed copies, and `--uninstall` removes them. Skills reference each other by relative path, so install `poteto-mode` together with the skills it routes to.
+
+## Model routing
+
+`~/.config/agent-workflows/models.toml` maps each pstack role to a model, and each model to the CLI that runs it. Edit it by hand or with `/setup-pstack`.
+
+```toml
+budget = "large"          # starting effort: unlimited=max, large=xhigh, medium=high, small=medium
+
+[models.opus]
+provider = "claude"
+model = "opus"
+fallback = "sol"          # retried on when Claude reports a usage limit
+
+[roles]
+judgment_prose = "opus"
+arena_runners = ["opus", "sol"]
 ```
 
-Install manual workflows for Claude Code:
+Skills resolve a role with `aw-run --resolve <role>`. When the role's provider is the CLI you are in, the lead spawns a native subagent with that model and effort. Otherwise it runs `aw-run <role> < brief.md`, which runs `claude -p` or `codex exec` headless:
 
-```sh
-python3 install.py --runtime claude --skills how,why,architect
-```
+- `--shift -2` lowers effort two steps for routine work, `--shift 1` raises it for the hardest.
+- `--read-only` runs Claude in plan mode and Codex in its read-only sandbox.
+- Neither CLI runs with permission or sandbox bypass flags.
+- Every call is appended to `~/.local/state/agent-workflows/runs.jsonl` with its role, provider, model, effort, duration, and usage, so you can check how the work splits between subscriptions.
 
-Use `$how` in Codex and `/how` in Claude Code. `--skills all` selects all fifty, with manual invocation by default. `--auto` is an explicit list of selected, eligible skills; eleven workflows remain manual-only because their instructions require explicit requests. See the catalog for eligibility.
+## Upstream
 
-Personal destinations default to `$CODEX_HOME/skills` or `~/.codex/skills` for Codex, and `~/.claude/skills` for Claude Code. For a project or custom destination, pass `--dest`, for example `--dest .claude/skills` or `--dest .agents/skills`. Project guidance and the host's skill discovery rules still apply.
-
-The installer writes selected skill folders and an `agent-workflows/` support directory beside the destination. It preserves existing global instructions and profiles. It refuses to overwrite existing skills or changed support instructions. Existing model choices in its support registry are preserved. To use another existing workflow registry, pass `--models PATH`.
-
-## Runtime adaptation
-
-Canonical skill files contain path and invocation placeholders. Run the installer rather than copying those templates directly. It resolves paths for the destination and emits the correct invocation metadata:
-
-| Runtime | Manual invocation policy | Command |
-| --- | --- | --- |
-| Codex | `agents/openai.yaml`: `allow_implicit_invocation: false` | `$skill-name` |
-| Claude Code | `SKILL.md` frontmatter: `disable-model-invocation: true` | `/skill-name` |
-
-The runtime guide is loaded when a selected skill needs it. Installed manual skills do not activate because another workflow references them. Global/project instructions and explicit user directions take precedence.
-
-The [model-role example](config/models.toml) leaves native model and effort settings unchanged. Configure supported choices deliberately. A registry entry does not establish model access. GPT model identifiers and Codex effort settings are not translated into Claude settings. Independent agents using the same model do not constitute a cross-family review.
-
-This package uses each host's available native agent mechanism. It supplies no separate scheduler, cross-vendor model bridge, daemon, transcript database, or native skill-creator replacement.
-
-## Compatibility and verification
-
-See [compatibility notes](COMPATIBILITY.md) for what changed from the originals and which capabilities are optional. These are adaptations, not a claim that the original Cursor workflows run unchanged.
-
-The [recorded configuration checks](VERIFICATION.md) distinguish structural validation and Codex discovery from model-backed workflow execution. Claude frontmatter and template rendering can be inspected without running a Claude model; that does not establish complete behavioral equivalence. Missing profilers, browsers, MCP sources, transcript access, model choices, or authentication must be reported by the workflow.
-
-## Attribution and distribution
-
-The [MIT license](LICENSE) and [attribution notice](NOTICE.md) retain Lauren Tan's copyright. [catalog.json](catalog.json) records the pinned upstream source for every skill. Unrelated skills and the maintainer's private configuration, conversations, credentials, and memory are excluded.
-
-This directory is a local package ready for review and sharing. It has not been published to a repository or plugin directory. It installs standalone native skills; it is not a preconfigured marketplace plugin.
+`PORTING.md` lists every substitution. Commit `0e257f7` is upstream verbatim, so `git diff 0e257f7 -- skills agents` shows each porting edit. Upstream's [guide](https://github.com/cursor/plugins/tree/main/pstack/docs/guide) explains the workflows. Its Cursor UI steps do not apply here.

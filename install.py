@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install selected workflow skills with runtime-specific invocation metadata."""
+"""Install pstack skills, agents, the model registry, and aw-run for Claude Code or Codex."""
 
 import argparse
 import json
@@ -9,162 +9,142 @@ import re
 import shutil
 import tempfile
 
-
 PACKAGE = Path(__file__).resolve().parent
+SKILLS = PACKAGE / "skills"
+AGENTS = PACKAGE / "agents"
+HOME = Path.home()
+REGISTRY = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "agent-workflows" / "models.toml"
+BIN = HOME / ".local" / "bin" / "aw-run"
+CODEX_KEYS = {"name", "description", "license", "allowed-tools", "metadata"}
+MANUAL = re.compile(r"^disable-model-invocation:\s*(true|false)\s*\n", re.M)
 
 
-def names(value):
-    return [item.strip() for item in value.split(",") if item.strip()]
+def frontmatter(text):
+    if not text.startswith("---\n") or "\n---" not in text[4:]:
+        raise ValueError("missing YAML frontmatter")
+    end = text.index("\n---", 4) + 1
+    return text[4:end], text[end:]
 
 
-def render(content, bindings):
-    for key, value in bindings.items():
-        content = content.replace("{{" + key + "}}", str(value))
-    unresolved = re.findall(r"\{\{[A-Z_]+\}\}", content)
-    if unresolved:
-        raise ValueError("Unresolved template fields: " + ", ".join(sorted(set(unresolved))))
-    return content
+def manual_default(name):
+    match = MANUAL.search(frontmatter((SKILLS / name / "SKILL.md").read_text())[0])
+    return bool(match) and match.group(1) == "true"
 
 
-def skill_text(content, runtime, automatic):
-    parts = content.split("---", 2)
-    if len(parts) != 3 or parts[0].strip():
-        raise ValueError("Skill must start with YAML frontmatter")
+def render_skill(text, runtime, manual):
+    head, body = frontmatter(text)
+    head = MANUAL.sub("", head)
+    if runtime == "claude" and manual:
+        head += "disable-model-invocation: true\n"
+    if runtime == "codex":  # Codex's validator rejects keys outside its own set.
+        head = "".join(line for line in head.splitlines(keepends=True)
+                       if line.split(":", 1)[0] in CODEX_KEYS or line.startswith((" ", "\t")))
+    return "---\n" + head + body
+
+
+def render_agent(text, runtime):
     if runtime == "claude":
-        frontmatter = parts[1].rstrip() + "\ndisable-model-invocation: "
-        frontmatter += "false" if automatic else "true"
-        return "---" + frontmatter + "\n---" + parts[2]
-    return content
+        return text
+    head, body = frontmatter(text)
+    fields = dict(re.findall(r"^(name|description):\s*(.+)$", head, re.M))
+    body = body.split("---", 1)[1].strip() + "\n"
+    return (f"name = {json.dumps(fields['name'])}\n"
+            f"description = {json.dumps(fields['description'])}\n"
+            f"developer_instructions = {json.dumps(body)}\n")
+
+
+def plan(args):
+    available = sorted(path.name for path in SKILLS.iterdir() if (path / "SKILL.md").is_file())
+    selected = available if args.skills == "all" else list(dict.fromkeys(filter(None, map(str.strip, args.skills.split(",")))))
+    automatic = set(filter(None, map(str.strip, args.auto.split(","))))
+    unknown = (set(selected) | automatic) - set(available)
+    if unknown:
+        raise SystemExit("Unknown skills: " + ", ".join(sorted(unknown)))
+    if automatic - set(selected):
+        raise SystemExit("Every --auto skill must also be selected with --skills")
+    root = HOME / ".claude" if args.runtime == "claude" else Path(os.environ.get("CODEX_HOME", HOME / ".codex"))
+    skills_dir = (args.dest or root / "skills").expanduser().resolve()
+    suffix = ".md" if args.runtime == "claude" else ".toml"
+    files = {}
+    for name in selected:
+        manual = manual_default(name) and name not in automatic
+        files[skills_dir / name] = ("skill", name, manual)
+    for agent in sorted(AGENTS.glob("*.md")):
+        files[root / "agents" / (agent.stem + suffix)] = ("agent", agent, None)
+    files[REGISTRY] = ("registry", PACKAGE / "config" / "models.toml", None)
+    files[BIN] = ("bin", PACKAGE / "bin" / "aw-run", None)
+    return files
+
+
+def install(files, runtime, force):
+    conflicts = [str(path) for path, (kind, source, _) in files.items()
+                 if path.exists() and kind != "registry" and not force
+                 and not (kind == "bin" and path.read_bytes() == source.read_bytes())]
+    if conflicts:
+        raise SystemExit("Existing files would be overwritten (pass --force): " + ", ".join(conflicts))
+    for path, (kind, source, manual) in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if kind == "skill":
+            with tempfile.TemporaryDirectory(prefix=".pstack-", dir=path.parent) as temporary:
+                staged = Path(temporary) / source
+                shutil.copytree(SKILLS / source, staged)
+                skill = staged / "SKILL.md"
+                skill.write_text(render_skill(skill.read_text(), runtime, manual))
+                if runtime == "codex":
+                    (staged / "agents").mkdir(exist_ok=True)
+                    policy = "false" if manual else "true"
+                    (staged / "agents" / "openai.yaml").write_text(f"policy:\n  allow_implicit_invocation: {policy}\n")
+                if path.exists():
+                    shutil.rmtree(path)
+                staged.rename(path)
+        elif kind == "agent":
+            path.write_text(render_agent(source.read_text(), runtime))
+        elif kind == "registry":
+            if not path.exists():  # Preserve the user's model choices.
+                shutil.copyfile(source, path)
+        else:
+            shutil.copyfile(source, path)
+            path.chmod(0o755)
+
+
+def uninstall(files):
+    for path, (kind, *_ ) in files.items():
+        if kind == "skill" and path.is_dir():
+            shutil.rmtree(path)
+        elif kind == "agent" and path.is_file():
+            path.unlink()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--runtime", choices=["codex", "claude"])
-    parser.add_argument("--skills", help="Comma-separated skill names, or all; no selection by default")
-    parser.add_argument("--auto", default="", help="Opt selected eligible skills into automatic invocation")
-    parser.add_argument("--dest", type=Path, help="Skill directory; defaults to the runtime's personal skills")
-    parser.add_argument("--models", type=Path, help="Use an existing workflow model-role registry")
-    parser.add_argument("--list", action="store_true", help="List available skills and automatic-mode eligibility")
-    parser.add_argument("--dry-run", action="store_true", help="Render and check the installation without writing")
+    parser.add_argument("--runtime", choices=["claude", "codex"])
+    parser.add_argument("--skills", help="comma-separated skill names, or all")
+    parser.add_argument("--auto", default="", help="selected skills the model may invoke on its own")
+    parser.add_argument("--dest", type=Path, help="skill directory; defaults to the runtime's personal skills")
+    parser.add_argument("--list", action="store_true", help="list skills and their default invocation")
+    parser.add_argument("--dry-run", action="store_true", help="print the plan without writing")
+    parser.add_argument("--force", action="store_true", help="replace installed copies of these skills and agents")
+    parser.add_argument("--uninstall", action="store_true", help="remove the selected skills and the agents")
     args = parser.parse_args()
-    catalog = json.loads((PACKAGE / "catalog.json").read_text())
-    entries = catalog["skills"]
     if args.list:
-        for name, entry in entries.items():
-            eligibility = "auto available" if entry["auto_supported"] else "manual only"
-            print(f"{name:52} {entry['category']:10} {eligibility}")
+        for path in sorted(SKILLS.iterdir()):
+            if (path / "SKILL.md").is_file():
+                print(f"{path.name:52} {'manual' if manual_default(path.name) else 'auto'}")
         return
     if not args.runtime or not args.skills:
-        parser.error("Choose --runtime and --skills, or use --list")
-    selected = list(entries) if args.skills == "all" else list(dict.fromkeys(names(args.skills)))
-    automatic = set(names(args.auto))
-    unknown = (set(selected) | automatic) - set(entries)
-    if unknown:
-        parser.error("Unknown skills: " + ", ".join(sorted(unknown)))
-    if not selected:
-        parser.error("Select at least one skill")
-    if automatic - set(selected):
-        parser.error("Every --auto skill must also be selected with --skills")
-    manual_only = [name for name in automatic if not entries[name]["auto_supported"]]
-    if manual_only:
-        parser.error("These workflows require explicit invocation: " + ", ".join(sorted(manual_only)))
-
-    default_root = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
-    if args.runtime == "claude":
-        default_root = Path.home() / ".claude"
-    destination = (args.dest or default_root / "skills").expanduser().resolve()
-    runtime_root = destination.parent
-    support = runtime_root / "agent-workflows"
-    host_instructions = runtime_root / ("AGENTS.md" if args.runtime == "codex" else "CLAUDE.md")
-    existing_rules = runtime_root / "workflow-rules.md"
-    models = args.models.expanduser().resolve() if args.models else support / "models.toml"
-    if args.models and not models.is_file():
-        parser.error("--models must name an existing file")
-    bindings = {
-        "GLOBAL_INSTRUCTIONS": host_instructions if host_instructions.is_file() else support / "instructions.md",
-        "SKILLS_ROOT": destination,
-        "MODEL_REGISTRY": models,
-        "RUNTIME_GUIDE": support / "runtime.md",
-        "WORKFLOW_RULES": existing_rules if existing_rules.is_file() else support / "workflow-rules.md",
-        "INVOKE": "$" if args.runtime == "codex" else "/",
-    }
-    if destination.is_relative_to(PACKAGE) or PACKAGE.is_relative_to(destination):
-        parser.error("Choose a destination outside the package source")
-
-    support_sources = {
-        "runtime.md": PACKAGE / "adapters" / args.runtime / "runtime.md",
-        "instructions.md": PACKAGE / "runtime" / "instructions.md",
-        "LICENSE": PACKAGE / "LICENSE",
-        "NOTICE.md": PACKAGE / "NOTICE.md",
-    }
-    if not existing_rules.is_file():
-        support_sources["workflow-rules.md"] = PACKAGE / "runtime" / "workflow-rules.md"
-    if not args.models:
-        support_sources["models.toml"] = PACKAGE / "config" / "models.toml"
-    support_content = {name: render(path.read_text(), bindings) for name, path in support_sources.items()}
-    conflicts = [str(destination / name) for name in selected if (destination / name).exists()]
-    for name, content in support_content.items():
-        target = support / name
-        if target.exists() and target.read_text() != content:
-            if name == "models.toml":
-                continue  # Preserve the consumer's configured model choices.
-            conflicts.append(str(target))
-    if conflicts:
-        parser.error("Existing files would be overwritten; preserved: " + ", ".join(conflicts))
-
-    rendered = {}
-    for name in selected:
-        source = PACKAGE / "skills" / name
-        content = render((source / "SKILL.md").read_text(), bindings)
-        rendered[name] = skill_text(content, args.runtime, name in automatic)
-        for path in source.rglob("*"):
-            if path.is_symlink():
-                parser.error("Skill source contains a symlink: " + str(path))
-    overview = {
-        "runtime": args.runtime,
-        "destination": str(destination),
-        "support": str(support),
-        "models": str(models),
-        "selected": {name: "auto" if name in automatic else "manual" for name in selected},
-        "writes_global_instructions": False,
-        "writes_agent_profiles": False,
-        "dry_run": args.dry_run,
-    }
+        parser.error("choose --runtime and --skills, or use --list")
+    files = plan(args)
     if args.dry_run:
-        print(json.dumps(overview, indent=2))
+        for path, (kind, _, manual) in files.items():
+            note = ("manual" if manual else "auto") if kind == "skill" else kind
+            print(f"{'remove' if args.uninstall else 'write'} {path} ({note})")
         return
-
-    destination.mkdir(parents=True, exist_ok=True)
-    support.mkdir(parents=True, exist_ok=True)
-    for name, content in support_content.items():
-        target = support / name
-        if not target.exists():
-            with target.open("x") as output:
-                output.write(content)
-    for name in selected:
-        source = PACKAGE / "skills" / name
-        with tempfile.TemporaryDirectory(prefix=".workflow-install-", dir=destination) as temporary:
-            staged = Path(temporary) / name
-            shutil.copytree(source, staged)
-            (staged / "SKILL.md").write_text(rendered[name])
-            if args.runtime == "codex":
-                agents = staged / "agents"
-                agents.mkdir(exist_ok=True)
-                policy = "true" if name in automatic else "false"
-                (agents / "openai.yaml").write_text("policy:\n  allow_implicit_invocation: " + policy + "\n")
-            else:
-                # Codex metadata has no role in Claude skill discovery.
-                metadata = staged / "agents" / "openai.yaml"
-                if metadata.exists():
-                    metadata.unlink()
-                    if not any(metadata.parent.iterdir()):
-                        metadata.parent.rmdir()
-            staged.rename(destination / name)
-    print(json.dumps(overview, indent=2))
+    if args.uninstall:
+        uninstall(files)
+    else:
+        install(files, args.runtime, args.force)
+    print(f"{'Removed' if args.uninstall else 'Installed'} {sum(k == 'skill' for k, *_ in files.values())} skills for {args.runtime}")
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (OSError, ValueError) as error:
-        raise SystemExit(str(error)) from error
+    main()

@@ -1,0 +1,40 @@
+# Agent workflows model registry. Shared by Claude Code and Codex.
+# Installed to ~/.config/agent-workflows/models.toml; edit that copy.
+# Resolve a role with `aw-run --resolve <role>`. Run a cross-provider role with `aw-run <role>`.
+
+# Starting effort for every role. unlimited = max, large = xhigh, medium = high, small = medium.
+budget = "large"
+
+# Each model names the CLI that runs it, so each call bills that CLI's subscription.
+# `fallback` names the model to retry on when this one's provider reports a usage limit.
+
+[models.opus]
+provider = "claude"
+model = "opus"
+fallback = "sol"
+
+[models.sol]
+provider = "codex"
+model = "gpt-6.1-sol"
+fallback = "opus"
+
+# One line per role, as in upstream setup-pstack. A value is a model name, a list for
+# panels (one subagent per entry), or "inherit" to run on the parent session's model.
+[roles]
+feature_refactoring = "sol"
+bug_fix = "sol"
+perf_issue = "sol"
+hillclimb = "sol"
+judgment_prose = "opus"
+hardest_tasks = "opus"
+how_explorer = "sol"
+how_explainer = "opus"
+why_investigators = "sol"
+why_synthesizer = "opus"
+reflect_tooling = "sol"
+reflect_judgment = "opus"
+arena_runners = ["opus", "sol"]
+arena_cross_judge_pool = ["opus", "sol"]
+swarm_workers = "sol"
+architect_runners = ["opus", "sol"]
+interrogate_reviewers = ["opus", "sol"]

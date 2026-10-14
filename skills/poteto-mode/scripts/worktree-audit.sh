@@ -61,9 +61,13 @@ elif raw=$(gh pr list --author "@me" --state all --limit 1000 \
 fi
 [ -s "$prs" ] || echo "[]" > "$prs"
 
-# Transcripts dir: ~/.cursor/projects/<slugified-repo-path>/agent-transcripts.
-slug=$(printf '%s' "$main_wt" | sed 's#^/##; s#/#-#g')
-transcripts="$HOME/.cursor/projects/$slug/agent-transcripts"
+# Transcript dirs: Claude Code keeps ~/.claude/projects/<slugified-repo-path>/,
+# Codex keeps ~/.codex/sessions/ for every project (matched by worktree path below).
+slug=$(printf '%s' "$main_wt" | sed 's#[^A-Za-z0-9]#-#g')
+transcripts=""
+for d in "$HOME/.claude/projects/$slug" "$HOME/.codex/sessions"; do
+	[ -d "$d" ] && transcripts="$transcripts $d"
+done
 now=$(date +%s)
 
 echo "# base: $base"
@@ -103,11 +107,13 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt;
 	# Most recent chat whose transcript operated in this worktree. Match path
 	# followed by "/" or a quote so glint-482 does not match glint-482-r37.
 	last="-"; last_ts=0
-	if [ -d "$transcripts" ]; then
-		f=$(rg -l -e "${wt}/" -e "${wt}\"" "$transcripts" 2>/dev/null \
-			| xargs stat -f '%m %N' 2>/dev/null | sort -rn | head -1)
+	if [ -n "$transcripts" ]; then
+		f=$(rg -l -e "${wt}/" -e "${wt}\"" $transcripts 2>/dev/null \
+			| xargs stat -c '%Y %n' 2>/dev/null || rg -l -e "${wt}/" -e "${wt}\"" $transcripts 2>/dev/null \
+			| xargs stat -f '%m %N' 2>/dev/null)
+		f=$(echo "$f" | sort -rn | head -1)
 		if [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-			last=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
+			last=$(date -d "@$last_ts" '+%Y-%m-%d' 2>/dev/null || date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
 	fi
 	recent=$([ "$last_ts" -gt 0 ] 2>/dev/null && [ $(( (now - last_ts) / 86400 )) -le 4 ] && echo yes || echo no)
 

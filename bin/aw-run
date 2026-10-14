@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Run a workflow role on the CLI that owns its model, so each call bills that CLI's subscription.
+
+  aw-run --resolve ROLE              print the role's model(s) as JSON
+  aw-run ROLE [options] < brief.md   run the brief headless and print the final message
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import tomllib
+
+EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+BUDGETS = {"unlimited": "max", "large": "xhigh", "medium": "high", "small": "medium"}
+LIMIT = re.compile(r"usage limit|rate limit|limit reached|quota|too many requests|\b429\b", re.I)
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-workflows" / "models.toml"
+LOG = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "agent-workflows" / "runs.jsonl"
+
+
+def load():
+    path = Path(os.environ.get("AW_MODELS", CONFIG))
+    if not path.is_file():
+        sys.exit(f"aw-run: no model registry at {path}")
+    registry = tomllib.loads(path.read_text())
+    budget = registry.get("budget", "large")
+    if budget not in BUDGETS:
+        sys.exit(f"aw-run: budget must be one of {', '.join(BUDGETS)}")
+    return registry
+
+
+def resolve(registry, role, shift):
+    if role not in registry.get("roles", {}):
+        sys.exit(f"aw-run: unknown role {role!r}; roles: {', '.join(registry.get('roles', {}))}")
+    value = registry["roles"][role]
+    names = value if isinstance(value, list) else [value]
+    base = EFFORTS.index(BUDGETS[registry.get("budget", "large")])
+    effort = EFFORTS[min(max(base + shift, 0), len(EFFORTS) - 1)]
+    resolved = []
+    for name in names:
+        if name == "inherit":
+            resolved.append({"name": "inherit", "provider": "inherit", "model": None, "effort": None})
+            continue
+        if name not in registry.get("models", {}):
+            sys.exit(f"aw-run: role {role!r} names unknown model {name!r}")
+        entry = registry["models"][name]
+        if entry.get("provider") not in ("claude", "codex"):
+            sys.exit(f"aw-run: model {name!r} needs provider = \"claude\" or \"codex\"")
+        resolved.append({"name": name, "provider": entry["provider"], "model": entry["model"],
+                         "effort": effort, "fallback": entry.get("fallback")})
+    return resolved
+
+
+def command(choice, read_only, cwd, message_file):
+    if choice["provider"] == "claude":
+        mode = "plan" if read_only else "auto"
+        return ["claude", "-p", "--model", choice["model"], "--effort", choice["effort"],
+                "--permission-mode", mode, "--output-format", "json"]
+    sandbox = "read-only" if read_only else "workspace-write"
+    return ["codex", "exec", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"',
+            "-s", sandbox, "-C", str(cwd), "--json", "-o", message_file]
+
+
+def last_usage(events):
+    usage = None
+    for line in events.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and "usage" in event:
+            usage = event["usage"]
+    return usage
+
+
+def run(choice, brief, read_only, cwd):
+    with tempfile.NamedTemporaryFile("r", suffix=".md") as message:
+        started = time.monotonic()
+        result = subprocess.run(command(choice, read_only, cwd, message.name), input=brief,
+                                capture_output=True, text=True, cwd=cwd)
+        outcome = {"exit": result.returncode, "seconds": round(time.monotonic() - started, 1)}
+        if choice["provider"] == "claude":
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                data = {"is_error": True, "result": result.stdout + result.stderr}
+            text = data.get("result", "")
+            failed = result.returncode != 0 or data.get("is_error", False)
+            outcome.update(usage=data.get("usage"), cost_usd=data.get("total_cost_usd"))
+        else:
+            text = Path(message.name).read_text()
+            failed = result.returncode != 0
+            outcome.update(usage=last_usage(result.stdout))
+        limited = failed and bool(LIMIT.search(text + result.stdout + result.stderr))
+        return text if not failed else (text or result.stderr), failed, limited, outcome
+
+
+def log(entry):
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("role")
+    parser.add_argument("--resolve", action="store_true", help="print the resolved model(s) and exit")
+    parser.add_argument("--index", type=int, default=0, help="panel seat to run, for list roles")
+    parser.add_argument("--shift", type=int, default=0, help="effort steps from the budget level, e.g. -2 or 1")
+    parser.add_argument("--read-only", action="store_true", help="plan mode in Claude, read-only sandbox in Codex")
+    parser.add_argument("--cd", type=Path, default=Path.cwd(), help="working directory for the run")
+    parser.add_argument("--out", type=Path, help="also write the final message here")
+    parser.add_argument("--no-fallback", action="store_true", help="fail instead of switching provider")
+    args = parser.parse_args()
+    registry = load()
+    choices = resolve(registry, args.role, args.shift)
+    if args.resolve:
+        print(json.dumps(choices if len(choices) > 1 else choices[0]))
+        return
+    if not 0 <= args.index < len(choices):
+        sys.exit(f"aw-run: role {args.role!r} has {len(choices)} seat(s)")
+    choice = choices[args.index]
+    if choice["provider"] == "inherit":
+        sys.exit("aw-run: this role inherits the parent model; spawn a native subagent instead")
+    brief = sys.stdin.read()
+    if not brief.strip():
+        sys.exit("aw-run: pass the brief on stdin")
+    text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
+    log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index,
+         "provider": choice["provider"], "model": choice["model"], "effort": choice["effort"],
+         "read_only": args.read_only, "limited": limited, **outcome})
+    if limited and choice.get("fallback") and not args.no_fallback:
+        fallback = resolve({**registry, "roles": {"_": choice["fallback"]}}, "_", args.shift)[0]
+        print(f"aw-run: {choice['provider']} hit a usage limit; retrying on {fallback['provider']} "
+              f"{fallback['model']}", file=sys.stderr)
+        text, failed, limited, outcome = run(fallback, brief, args.read_only, args.cd)
+        log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index,
+             "provider": fallback["provider"], "model": fallback["model"], "effort": fallback["effort"],
+             "read_only": args.read_only, "limited": limited, "fallback_from": choice["name"], **outcome})
+    if args.out:
+        args.out.write_text(text)
+    print(text)
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
