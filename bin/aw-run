@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Run a workflow role on the CLI that owns its model, so each call bills that CLI's subscription.
+"""Run a workflow role on the CLI that owns its model, so each call bills that CLI's plan.
 
   aw-run --resolve ROLE              print the role's model(s) as JSON
   aw-run ROLE [options] < brief.md   run the brief headless and print the final message
+
+Works with any mix of Claude Code, Codex, and Grok. A model whose CLI is not installed
+resolves to the first installed model in its fallback chain.
 """
 
 import argparse
@@ -10,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,81 +27,134 @@ CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "age
 LOG = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "agent-workflows" / "runs.jsonl"
 
 
+def json_or(text, default):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return default
+
+
+def last_usage(events):
+    usage = None
+    for line in events.splitlines():
+        event = json_or(line, None)
+        if isinstance(event, dict) and "usage" in event:
+            usage = event["usage"]
+    return usage
+
+
+def claude_command(choice, read_only, cwd, files):
+    return ["claude", "-p", "--model", choice["model"], "--effort", choice["effort"],
+            "--permission-mode", "plan" if read_only else "auto", "--output-format", "json"]
+
+
+def claude_parse(result, files):
+    data = json_or(result.stdout, {"is_error": True, "result": result.stdout + result.stderr})
+    failed = result.returncode != 0 or data.get("is_error", False)
+    return data.get("result", ""), failed, {"usage": data.get("usage"), "cost_usd": data.get("total_cost_usd")}
+
+
+def codex_command(choice, read_only, cwd, files):
+    return ["codex", "exec", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"',
+            "-s", "read-only" if read_only else "workspace-write", "-C", str(cwd), "--json", "-o", files["message"]]
+
+
+def codex_parse(result, files):
+    return Path(files["message"]).read_text(), result.returncode != 0, {"usage": last_usage(result.stdout)}
+
+
+def grok_command(choice, read_only, cwd, files):
+    # Grok's headless mode does not read stdin, so the brief goes through --prompt-file.
+    return ["grok", "--prompt-file", files["prompt"], "-m", choice["model"], "--effort", choice["effort"],
+            "--sandbox", "read-only" if read_only else "workspace",
+            "--permission-mode", "dontAsk" if read_only else "auto",
+            "--cwd", str(cwd), "--output-format", "json"]
+
+
+def grok_parse(result, files):
+    data = json_or(result.stdout, {"type": "error", "message": result.stdout + result.stderr})
+    failed = result.returncode != 0 or data.get("type") == "error"
+    text = data.get("message", "") if data.get("type") == "error" else data.get("text", "")
+    return text, failed, {"usage": data.get("usage"), "cost_usd": data.get("total_cost_usd")}
+
+
+PROVIDERS = {
+    "claude": {"binary": "claude", "command": claude_command, "parse": claude_parse, "stdin": True},
+    "codex": {"binary": "codex", "command": codex_command, "parse": codex_parse, "stdin": True},
+    "grok": {"binary": "grok", "command": grok_command, "parse": grok_parse, "stdin": False},
+}
+
+
+def installed(provider):
+    return shutil.which(PROVIDERS[provider]["binary"]) is not None
+
+
 def load():
     path = Path(os.environ.get("AW_MODELS", CONFIG))
     if not path.is_file():
         sys.exit(f"aw-run: no model registry at {path}")
     registry = tomllib.loads(path.read_text())
-    budget = registry.get("budget", "large")
-    if budget not in BUDGETS:
+    if registry.get("budget", "large") not in BUDGETS:
         sys.exit(f"aw-run: budget must be one of {', '.join(BUDGETS)}")
+    for name, entry in registry.get("models", {}).items():
+        if entry.get("provider") not in PROVIDERS:
+            sys.exit(f"aw-run: model {name!r} needs provider = one of {', '.join(PROVIDERS)}")
     return registry
+
+
+def chain(registry, name):
+    """The model, then its fallbacks breadth-first, each once."""
+    order, queue = [], [name]
+    while queue:
+        current = queue.pop(0)
+        if current in order:
+            continue
+        if current not in registry.get("models", {}):
+            sys.exit(f"aw-run: unknown model {current!r}")
+        order.append(current)
+        fallback = registry["models"][current].get("fallback", [])
+        queue.extend(fallback if isinstance(fallback, list) else [fallback])
+    return order
 
 
 def resolve(registry, role, shift):
     if role not in registry.get("roles", {}):
         sys.exit(f"aw-run: unknown role {role!r}; roles: {', '.join(registry.get('roles', {}))}")
     value = registry["roles"][role]
-    names = value if isinstance(value, list) else [value]
     base = EFFORTS.index(BUDGETS[registry.get("budget", "large")])
     effort = EFFORTS[min(max(base + shift, 0), len(EFFORTS) - 1)]
-    resolved = []
-    for name in names:
+    seats = []
+    for name in value if isinstance(value, list) else [value]:
         if name == "inherit":
-            resolved.append({"name": "inherit", "provider": "inherit", "model": None, "effort": None})
+            seats.append({"name": "inherit", "provider": "inherit", "model": None, "effort": None})
             continue
-        if name not in registry.get("models", {}):
-            sys.exit(f"aw-run: role {role!r} names unknown model {name!r}")
-        entry = registry["models"][name]
-        if entry.get("provider") not in ("claude", "codex"):
-            sys.exit(f"aw-run: model {name!r} needs provider = \"claude\" or \"codex\"")
-        resolved.append({"name": name, "provider": entry["provider"], "model": entry["model"],
-                         "effort": effort, "fallback": entry.get("fallback")})
-    return resolved
-
-
-def command(choice, read_only, cwd, message_file):
-    if choice["provider"] == "claude":
-        mode = "plan" if read_only else "auto"
-        return ["claude", "-p", "--model", choice["model"], "--effort", choice["effort"],
-                "--permission-mode", mode, "--output-format", "json"]
-    sandbox = "read-only" if read_only else "workspace-write"
-    return ["codex", "exec", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"',
-            "-s", sandbox, "-C", str(cwd), "--json", "-o", message_file]
-
-
-def last_usage(events):
-    usage = None
-    for line in events.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict) and "usage" in event:
-            usage = event["usage"]
-    return usage
+        available = [model for model in chain(registry, name) if installed(registry["models"][model]["provider"])]
+        if not available:
+            sys.exit(f"aw-run: no installed CLI for model {name!r} or its fallbacks")
+        entry = registry["models"][available[0]]
+        seat = {"name": available[0], "provider": entry["provider"], "model": entry["model"], "effort": effort,
+                "fallbacks": available[1:]}
+        if available[0] != name:
+            seat["substituted_for"] = name
+        seats.append(seat)
+    return seats
 
 
 def run(choice, brief, read_only, cwd):
-    with tempfile.NamedTemporaryFile("r", suffix=".md") as message:
+    provider = PROVIDERS[choice["provider"]]
+    with tempfile.TemporaryDirectory(prefix="aw-run-") as scratch:
+        files = {"message": str(Path(scratch) / "message.md"), "prompt": str(Path(scratch) / "prompt.md")}
+        Path(files["message"]).touch()
+        Path(files["prompt"]).write_text(brief)
         started = time.monotonic()
-        result = subprocess.run(command(choice, read_only, cwd, message.name), input=brief,
+        result = subprocess.run(provider["command"](choice, read_only, cwd, files),
+                                input=brief if provider["stdin"] else None,
+                                stdin=None if provider["stdin"] else subprocess.DEVNULL,
                                 capture_output=True, text=True, cwd=cwd)
-        outcome = {"exit": result.returncode, "seconds": round(time.monotonic() - started, 1)}
-        if choice["provider"] == "claude":
-            try:
-                data = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                data = {"is_error": True, "result": result.stdout + result.stderr}
-            text = data.get("result", "")
-            failed = result.returncode != 0 or data.get("is_error", False)
-            outcome.update(usage=data.get("usage"), cost_usd=data.get("total_cost_usd"))
-        else:
-            text = Path(message.name).read_text()
-            failed = result.returncode != 0
-            outcome.update(usage=last_usage(result.stdout))
-        limited = failed and bool(LIMIT.search(text + result.stdout + result.stderr))
-        return text if not failed else (text or result.stderr), failed, limited, outcome
+        text, failed, details = provider["parse"](result, files)
+    limited = failed and bool(LIMIT.search(text + result.stdout + result.stderr))
+    outcome = {"exit": result.returncode, "seconds": round(time.monotonic() - started, 1), **details}
+    return (text or result.stderr) if failed else text, failed, limited, outcome
 
 
 def log(entry):
@@ -112,36 +169,37 @@ def main():
     parser.add_argument("--resolve", action="store_true", help="print the resolved model(s) and exit")
     parser.add_argument("--index", type=int, default=0, help="panel seat to run, for list roles")
     parser.add_argument("--shift", type=int, default=0, help="effort steps from the budget level, e.g. -2 or 1")
-    parser.add_argument("--read-only", action="store_true", help="plan mode in Claude, read-only sandbox in Codex")
+    parser.add_argument("--read-only", action="store_true", help="run in the CLI's read-only sandbox or plan mode")
     parser.add_argument("--cd", type=Path, default=Path.cwd(), help="working directory for the run")
     parser.add_argument("--out", type=Path, help="also write the final message here")
-    parser.add_argument("--no-fallback", action="store_true", help="fail instead of switching provider")
+    parser.add_argument("--no-fallback", action="store_true", help="fail instead of switching to a fallback")
     args = parser.parse_args()
     registry = load()
-    choices = resolve(registry, args.role, args.shift)
+    seats = resolve(registry, args.role, args.shift)
     if args.resolve:
-        print(json.dumps(choices if len(choices) > 1 else choices[0]))
+        print(json.dumps(seats if len(seats) > 1 else seats[0]))
         return
-    if not 0 <= args.index < len(choices):
-        sys.exit(f"aw-run: role {args.role!r} has {len(choices)} seat(s)")
-    choice = choices[args.index]
-    if choice["provider"] == "inherit":
+    if not 0 <= args.index < len(seats):
+        sys.exit(f"aw-run: role {args.role!r} has {len(seats)} seat(s)")
+    seat = seats[args.index]
+    if seat["provider"] == "inherit":
         sys.exit("aw-run: this role inherits the parent model; spawn a native subagent instead")
     brief = sys.stdin.read()
     if not brief.strip():
         sys.exit("aw-run: pass the brief on stdin")
-    text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
-    log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index,
-         "provider": choice["provider"], "model": choice["model"], "effort": choice["effort"],
-         "read_only": args.read_only, "limited": limited, **outcome})
-    if limited and choice.get("fallback") and not args.no_fallback:
-        fallback = resolve({**registry, "roles": {"_": choice["fallback"]}}, "_", args.shift)[0]
-        print(f"aw-run: {choice['provider']} hit a usage limit; retrying on {fallback['provider']} "
-              f"{fallback['model']}", file=sys.stderr)
-        text, failed, limited, outcome = run(fallback, brief, args.read_only, args.cd)
-        log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index,
-             "provider": fallback["provider"], "model": fallback["model"], "effort": fallback["effort"],
-             "read_only": args.read_only, "limited": limited, "fallback_from": choice["name"], **outcome})
+    attempts = [seat["name"]] + ([] if args.no_fallback else seat["fallbacks"])
+    for attempt, name in enumerate(attempts):
+        entry = registry["models"][name]
+        choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"]}
+        text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
+        log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index, "model_name": name,
+             **choice, "read_only": args.read_only, "limited": limited,
+             **({"fallback_from": attempts[attempt - 1]} if attempt else {}), **outcome})
+        if not limited or attempt == len(attempts) - 1:
+            break
+        following = registry["models"][attempts[attempt + 1]]
+        print(f"aw-run: {entry['provider']} hit a usage limit; retrying on {following['provider']} "
+              f"{following['model']}", file=sys.stderr)
     if args.out:
         args.out.write_text(text)
     print(text)

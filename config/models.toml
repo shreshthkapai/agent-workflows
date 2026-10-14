@@ -1,22 +1,28 @@
-# Agent workflows model registry. Shared by Claude Code and Codex.
-# Installed to ~/.config/agent-workflows/models.toml; edit that copy.
+# Agent workflows model registry. Shared by Claude Code, Codex, and Grok.
+# Installed to ~/.config/agent-workflows/models.toml; edit that copy, or run /setup-pstack.
 # Resolve a role with `aw-run --resolve <role>`. Run a cross-provider role with `aw-run <role>`.
 
 # Starting effort for every role. unlimited = max, large = xhigh, medium = high, small = medium.
 budget = "large"
 
-# Each model names the CLI that runs it, so each call bills that CLI's subscription.
-# `fallback` names the model to retry on when this one's provider reports a usage limit.
+# Each model names the CLI that runs it (claude, codex, or grok), so each call bills that CLI's plan.
+# Use any mix of plans. A model whose CLI is not installed resolves to the first installed model
+# in its `fallback` chain, which is also where `aw-run` retries when a provider reports a usage limit.
 
 [models.opus]
 provider = "claude"
 model = "opus"
-fallback = "sol"
+fallback = ["sol", "grok"]
 
 [models.sol]
 provider = "codex"
 model = "gpt-6.1-sol"
-fallback = "opus"
+fallback = ["grok", "opus"]
+
+[models.grok]
+provider = "grok"
+model = "grok-4.7"
+fallback = ["sol", "opus"]
 
 # One line per role, as in upstream setup-pstack. A value is a model name, a list for
 # panels (one subagent per entry), or "inherit" to run on the parent session's model.
