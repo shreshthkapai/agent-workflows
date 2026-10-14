@@ -1,10 +1,15 @@
 ---
 name: principle-never-block-on-the-human
-description: "Proceed with reasonable reversible steps when user intent and task authorization are clear."
+description: "Apply when tempted to ask 'should I do X?' on reversible work."
+disable-model-invocation: true
 ---
 
-# Never Block On The Human
+# Never Block on the Human
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+The human supervises asynchronously. Agents must stay unblocked. Make reasonable decisions, proceed, and let the human course-correct after the fact. Since code changes are reversible and reviewable, a wrong decision usually costs less than blocking.
 
-Do the authorized, reviewable work without interrupting the user for routine implementation choices. Infer reasonable defaults from the request, repository patterns, and existing instructions; keep the work scoped so the user can review and correct it. Ask when a missing requirement or genuine ambiguity changes the result materially and cannot be resolved from available context. Reversibility alone does not authorize out-of-scope changes or external actions. Do not turn a discovered adjacent issue into an automatic extra fix. If a decision must wait, continue independent work that does not depend on the answer.
+- Proceed, then present. Do the work, show the result. Don't ask "should I do X?" Do X, explain why.
+- Make the system self-healing. When you notice a problem, log it and fix it in the next round.
+- Irreversible actions (force-push, delete production data, send external messages) still require confirmation.
+- Reversible actions (write code, edit notes, split tasks) should proceed without blocking.
+- Product direction comes from the human. Execution should not block.

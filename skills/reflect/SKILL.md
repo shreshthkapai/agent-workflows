@@ -1,42 +1,67 @@
 ---
 name: reflect
-description: Reflect on completed work in the current conversation to identify durable lessons and propose concrete improvements to existing skills. Use when the user explicitly requests reflection.
+description: Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect.
+disable-model-invocation: true
 ---
 
 # Reflect
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Mine the current conversation for durable learnings, then route them into skill edits.
 
-Use only when the user explicitly asks for reflection or lesson capture. Review completed work for reusable changes to existing skills. A successful task does not need a lesson: skip trivial, one-off, already-covered, or weakly supported observations.
+Invoke when the user says "reflect" or "/reflect". Skip when the conversation is trivial, off-topic, or already covered by an existing skill the parent followed correctly. One-offs are not learnings.
 
-Invoke `{{INVOKE}}reflect on this task` in the thread where the work happened. Installing or updating this skill does not itself execute reflection.
+## 1. Locate the active transcript
 
-## Gather evidence and review independently
+Before fanning out, find this conversation's transcript in the `agent-transcripts/` directory the system prompt names. Do not glob across `~/.cursor/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects.
 
-Default to the current conversation and artifacts already identified for the work. Build a compact factual brief for the reviewers covering the goal, actions, observed results, user corrections, dead ends, and constraints, with evidence pointers. No saved transcript or history search is required. Label missing or compacted context rather than reconstructing it as fact.
+```bash
+ls -t <agent-transcripts>/*.jsonl <agent-transcripts>/*/*.jsonl <agent-transcripts>/*/subagents/*.jsonl 2>/dev/null | head -10
+```
 
-Read a saved transcript only when the user supplies it or explicitly requests that source, and only after identifying the exact relevant session. Do not discover or mine unrelated conversations. If invoked in a fresh thread without task context, request the relevant task summary or artifacts instead of searching history automatically.
+That covers the legacy flat (`<id>.jsonl`), current nested (`<id>/<id>.jsonl`), and subagent (`<parent>/subagents/<child>.jsonl`) layouts. For each candidate, read the first JSONL line. Take the file whose `message.content[0].text` contains the conversation's opening user prompt. If none matches, pass a tight digest of the session instead.
 
-Read `{{MODEL_REGISTRY}}`. Send the same evidence and candidate lesson scope to three independent, read-only reviewers with these lenses and role keys:
+## 2. Spawn three reviewers in parallel
 
-| Lens | Registry role |
-| --- | --- |
-| Judgment | `roles.reflect_judgment` |
-| Tooling | `roles.reflect_tooling` |
-| Divergent challenge | `roles.reflect_divergent` |
+One message, three `Task` calls, `subagent_type: generalPurpose`, agent mode (`readonly: false`). Reviewers need MCP access to look up the tickets, chat threads, and observability traces the transcript references, and readonly strips MCPs.
 
-Resolve each role alias through the `models` table to obtain `model` and `reasoning_effort`. If a required default cannot be resolved, report the issue rather than inventing a replacement; complete explicit per-run overrides may supply the settings. Different effort levels alone do not make different model families.
+Each reviewer and the synthesizer name a role line in the `pstack-models.mdc` rule and a default. Set `model` to that line's value, or to the default if the rule or the line is missing. Leave `model` unset when the value is `auto` or `inherit-parent`. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
 
-Use general-purpose native agents with explicit model and reasoning settings, not preset roles that may pin different settings. Honor explicit per-run overrides; if the runtime cannot honor one, report the actual roster and the missing review without silently substituting. If the spawning interface supports `fork_turns`, use `fork_turns: "none"` and give each reviewer a self-contained brief. Launch the three reviews independently when capacity permits. Do not change global defaults or speed; speed follows the parent session.
+| Lens | Role line | Default `model` | Prompt template |
+|---|---|---|---|
+| Judgment | `reflect judgment, divergent, synthesizer` | `claude-opus-5-5-xhigh` | `references/judgment-reviewer.md` |
+| Tooling | `reflect tooling` | `grok-4.7-xhigh-fast` | `references/tooling-reviewer.md` |
+| Divergent | `reflect judgment, divergent, synthesizer` | `claude-opus-5-5-xhigh` | `references/divergent-reviewer.md` |
 
-Every reviewer must read `{{GLOBAL_INSTRUCTIONS}}` and `{{SKILLS_ROOT}}/reflect/SKILL.md` in full before starting, then execute only its assigned review lens. Pass the same global-read requirement to any native agent it spawns. Reviewers must spawn no agents, write no files, and inspect only the supplied task evidence and relevant skill files. If fewer than three reviews complete, identify the dropped lens and model; do not present the review as complete.
+Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in the `Task` response body.
 
-Ask every reviewer to return only evidence-backed candidates. For each, identify the exact existing skill and section, quote the observed trigger or failure, propose a concrete narrow edit, explain when the new instruction should apply, and state its tradeoffs. The judgment lens prioritizes durable quality lessons; the tooling lens looks for structural enforcement such as a helper or lint where suitable; the divergent lens challenges the framing and suggests a safer or simpler alternative. These are distinct perspectives over the same evidence, not permission to invent lessons.
+## 3. Synthesize
 
-## Synthesize proposals
+One `Task` call, `subagent_type: generalPurpose`, `model` from the `reflect judgment, divergent, synthesizer` line (default `claude-opus-5-5-xhigh`), agent mode (`readonly: false`). It spot-verifies citations through MCP, and readonly strips MCPs. Pass `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. It returns an Accepted / Rejected / Backlog list.
 
-As lead, inspect the cited evidence and synthesize the reviews using the current model; do not add a redundant judge. Classify each candidate as **Accepted**, **Rejected**, or **Backlog**, with a short evidence-based reason. Prefer one narrow improvement to an existing skill and avoid creating new skills for a single incident. Prefer structural enforcement over more global prose when it directly prevents a demonstrated repeat problem. Preserve existing activation, model, and global settings.
+## 4. Structural enforcement check
 
-Prepare reviewable proposed edits first, as concise diffs or exact replacement text naming the target skill and section. Invoking this skill authorizes analysis and proposals, not applying them. Apply durable skill changes only after the user explicitly authorizes applying the lessons or chooses edits from the concrete proposal. Do not create tickets, send messages, or alter unrelated files. If the user authorizes edits, follow the skill-creator workflow and validate the changed skill structure; do not add or run tests unless the user requests testing or verification.
+Move any Accepted item that a lint rule, script, metadata flag, or runtime check would enforce more reliably to Backlog. See the **encode-lessons-in-structure** principle skill.
 
-Report the actual reviewer models and efforts, accepted/rejected/backlog proposals with evidence and tradeoffs, any concrete edit text, and incomplete reviews. State clearly which files were actually changed; do not imply that a proposal was applied.
+## 5. Apply
+
+Present the synthesizer's full Accepted / Rejected / Backlog output and wait for explicit approval before applying any Accepted edit. The user picks the subset and may redirect routings. Skill changes affect every future agent in the org. Do not auto-apply.
+
+File each Backlog item to your team's devex or backlog tracker without waiting. Only the Accepted list waits for approval.
+
+Follow each approved row's Routing exactly:
+
+- Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): the parent does it directly.
+- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): hand to Cursor's built-in `create-skill` skill and run its draft / test / iterate loop.
+- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): hand to `create-skill` and run its description-optimization loop.
+- `new skill via create-skill: <kebab-name>`: hand creation to `create-skill`. Do not invent the shape ad hoc.
+
+If your environment ships a SKILL.md validator, run it on every touched skill before declaring done.
+
+## 6. Summarize for the user
+
+Short list, no preamble:
+
+- Edits applied: `<skill path>`. What changed, one line each.
+- New skills created: `<skill path>`. One line each (rare).
+- Backlog filed to the devex tracker: `<issue title>` (`<tags>`). One line each.
+- Dropped: one line per rejected finding + reason from the synthesizer.

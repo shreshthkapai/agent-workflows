@@ -1,10 +1,24 @@
 ---
 name: principle-make-operations-idempotent
-description: "Make retryable state-changing operations converge safely after repeats, retries, or partial failure."
+description: "Apply when designing commands, lifecycle steps, or processing loops that run amid crashes, restarts, and retries. Converge to the same end state regardless of partial prior runs."
+disable-model-invocation: true
 ---
 
 # Make Operations Idempotent
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Design operations so they converge to the correct state regardless of how many times they run or where they start from. Every state-mutating operation should answer: "What happens if this runs twice? What happens if the previous run crashed halfway?"
 
-For commands, jobs, and external mutations that may be retried, consider what happens after a repeated request or a partial failure. Where the operation can be repeated, use the appropriate reconciliation, deduplication, idempotency key, transaction, or compare-and-set mechanism so the system converges to the intended state. Match the mechanism to the operation and its contract; not every function needs retry logic. Treat locks and persisted state according to their actual ownership and liveness guarantees. Do not infer that a process is stale from a PID alone or automatically delete state whose ownership has not been established.
+**Why:** Commands, lifecycle operations, and processing loops run where crashes, restarts, and retries are normal. If partial state changes the next run's outcome, every restart becomes a debugging session.
+
+**The pattern:**
+- Convergent startup: scan for existing state, clean stale artifacts, adopt live sessions
+- Content-based cleanup: compare by content equivalence, not creation order
+- Self-healing locks: use PID-based stale lock detection
+- Idempotent scheduling: failed work respawns cleanly, fresh input regenerated after each cycle
+
+**The test:**
+1. What happens if this runs twice in a row?
+2. What happens if the previous run crashed at every possible point?
+3. Does re-execution converge to the same end state?
+
+If any answer is "it depends on what state was left behind," the operation needs a reconciliation step.

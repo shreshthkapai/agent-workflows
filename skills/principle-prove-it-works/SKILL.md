@@ -1,10 +1,22 @@
 ---
 name: principle-prove-it-works
-description: "Verify completed work against the affected artifact and report what the evidence does and does not show."
+description: "Apply after completing a task, before declaring done. Verify against the real artifact (run the feature, read the actual value, inspect the diff), not a proxy, self-report, or 'it compiles.'"
+disable-model-invocation: true
 ---
 
 # Prove It Works
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Verify every task output by checking the real thing directly. Do not infer from proxies, self-reports, or "it compiles."
 
-Choose checks that observe the actual behavior or artifact changed by the task. Inspect the diff and relevant output; exercise the affected path when practical and authorized. Compilation or a passing proxy check alone may not show that the user-visible result is correct. Use focused existing checks within the user’s testing authorization; add tests only when the user or applicable workflow authorizes them. Distinguish inspection from commands actually run. Report failed, unavailable, or inconclusive checks honestly, including any limits on what they establish. Do not treat a plan, tool output summary, or another agent’s self-report as evidence in place of the artifact.
+**Why:** Unverified work has unknown correctness. Indirect verification (file mtimes, output freshness, agent self-reports, cached screenshots) feels cheaper than direct observation. Acting on a wrong inference costs far more than checking the source.
+
+Check the real thing, not a proxy:
+- Check process liveness directly, not indirectly through derived state
+- Read the actual value, not a cached or derived representation
+- When verification fails, suspect the observation method before suspecting the system
+
+## Script the check when you can
+
+The strongest proof is a deterministic script that re-runs the same comparison, not a one-time eyeball. Write the script, run it, and keep its output as an artifact a reviewer can re-run instead of trusting your word.
+
+Keep the artifact visible for the human. Commit it only for large or complex work where the trail has to be auditable later, like a big port or migration (the **show-me-your-work** skill).

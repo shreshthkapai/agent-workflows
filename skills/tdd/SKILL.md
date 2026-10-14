@@ -1,52 +1,42 @@
 ---
 name: tdd
-description: Fix a bug with a clear intended behavior and a practical existing regression-test path by demonstrating a failing test before the fix and a passing test afterward. Also use for explicit {{INVOKE}}tdd or test-driven bug-fix requests.
+description: "Use only when the user explicitly asks for TDD, a failing test, or a regression test, OR when the bug has an obvious cheap local test target. Skip when the test path is unclear, expensive, integration-heavy, or not requested."
+disable-model-invocation: true
 ---
 
 # TDD Bug Fix
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+When fixing a bug with a clear, cheap test path, make the broken behavior executable before changing production code. The goal is a focused regression test that fails before the fix and passes after it.
 
-Use for explicit `{{INVOKE}}tdd` requests, or automatically for a bug-fix implementation task that meets the criteria below. The user's request to enable automatic TDD provides standing authorization for the focused regression test and relevant nearby test runs within that bug fix. Respect any later instruction to skip tests or limit execution.
-
-## Automatic use
-
-Use automatically when the intended behavior is clear, the defect has a narrow observable reproduction, and the existing local test setup provides a practical path to a meaningful failing test. Briefly identify that check before starting; no separate confirmation is needed.
-
-Keep the work focused:
-
-- Skip automatic TDD for read-only investigations, review reports, prose changes, or tasks without a clear bug to fix.
-- Do not force a test requiring a new harness, substantial unrelated fixtures, brittle mocks, slow external infrastructure, or uncontrolled production state. Use the fallback below and explain the limit.
-- Use one focused regression path per distinct bug or behavior. Reuse the check as work continues rather than repeatedly starting TDD or adding duplicate tests at each phase.
-- Automatic TDD authorizes the focused regression work, not unrelated coverage expansion or an automatic full-suite run. It does not grant permission for external writes or changes outside the task.
-
-Explicit `{{INVOKE}}tdd fix this bug` remains available even when automatic selection would skip the task. Assess practicality honestly and explain a fallback if a useful failing test cannot be demonstrated.
-
-Follow applicable global engineering and code-delegation instructions. This skill does not prescribe additional agents or override model settings. If implementation is delegated, include this skill's full-read requirement and the focused test scope in the worker brief. The agent implementing the fix owns the failing-before and passing-after evidence; the lead checks that evidence and the actual changes before declaring completion.
+Do not force a test when it would be impractical. If the available test would require broad harness setup, brittle mocks, slow end-to-end infrastructure, production-only state, vague reproduction steps, or large unrelated fixture churn, skip adding a new test and use the closest useful verification instead.
 
 ## Workflow
 
-1. Identify the intended behavior, observed failure, affected path, and smallest useful reproduction. Trace the defect to its root cause.
-2. Choose the narrowest practical executable check, preferably using the existing unit, component, integration, or regression-test setup. Do not build a new harness merely to satisfy this workflow.
-3. Write the smallest test expressing the intended behavior before changing production code. Avoid coupling it to incidental implementation details.
-4. Run that test against the unfixed implementation. Confirm it fails for the bug's intended reason. If it passes or fails because of setup, imports, or another unrelated problem, correct the reproduction before editing production code. Do not claim failing-before evidence until it has been observed.
-5. Make the smallest production change that fixes the underlying defect while preserving nearby contracts.
-6. Rerun the same regression test and confirm it passes. If it still fails, investigate rather than weakening the assertion.
-7. Run focused adjacent checks when the changed behavior warrants them. Keep validation proportional to the affected scope rather than automatically running a full suite.
+1. **Understand the bug.** Identify the intended behavior, current behavior, affected path, and smallest observable reproduction.
+2. **Choose the narrowest executable check.** Prefer the closest unit, component, integration, or regression test already used for that codepath. If no practical test path is obvious, do not create one from scratch just to satisfy the workflow.
+3. **Write the failing test first.** Add the smallest focused test that would have caught the bug. The test should encode intended behavior, not mirror the current implementation.
+4. **Run the new test before fixing.** Confirm it fails for the intended reason. If it passes or fails for an unrelated reason, correct the test or reproduction before editing the implementation.
+5. **Fix the bug.** Make the smallest production change that satisfies the intended behavior while preserving nearby contracts.
+6. **Rerun the regression test.** Confirm the test now passes.
 
-## When a test is impractical
+## If a Failing Test Is Impractical
 
-Before changing production code, explain why a useful regression test is unavailable or disproportionate. Examples include brittle mocks, substantial unrelated fixtures, slow external infrastructure, production-only state, or nondeterministic reproduction.
+Use the closest executable regression check instead: a targeted script, manual reproduction command, browser automation, snapshot comparison, log assertion, or focused integration check.
 
-Use the closest practical executable check, such as a targeted command, script, browser reproduction, or integration scenario. Capture before-and-after evidence where possible. Do not force a poor test or claim a manual check is an automated regression test. If the failure cannot be reproduced or the result remains inconclusive, report that limit explicitly.
+Prefer no new test over a bad test. A bad test is one that mostly tests mocks, encodes current implementation details, depends on timing or unrelated global state, needs expensive infrastructure for a small fix, or would be deleted immediately after proving the fix.
 
 ## Guardrails
 
-- Do not change expected results to accommodate incorrect behavior or weaken existing assertions unless the intended behavior genuinely changed.
-- Keep the regression check focused on the reported defect; avoid unrelated coverage expansion or broad fixture churn.
-- For flaky failures, control the triggering conditions where practical and state any remaining nondeterminism.
-- Preserve unrelated work. If the fix already exists, do not destructively undo it to manufacture failing-before evidence; use an isolated reproduction when practical, or explain that the original failure was not demonstrated.
+- Do not change tests merely to match a wrong implementation.
+- Do not weaken existing assertions unless the expected behavior has genuinely changed and the reason is clear.
+- Keep the regression test focused on the bug. Avoid broad fixture churn or unrelated coverage expansion.
+- If the bug is flaky, make the test deterministic where possible and document the signal being locked down.
+- If the bug exposes a broader class of failures, first land the focused regression path, then consider additional sibling coverage.
 
-## Report
+## Final Response
 
-Report the changed behavior, root cause, regression-check location, exact commands run, observed failure before the fix, passing result afterward, and any adjacent validation. State clearly when failing-before evidence or final verification was unavailable or inconclusive.
+Report the evidence, not just the outcome:
+
+- Name the failing-before test or executable check and the failure it produced.
+- Name the passing-after test run and any nearby validation performed.
+- If failing-before evidence could not be demonstrated, state why and describe the closest regression check used instead.

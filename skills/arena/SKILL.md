@@ -1,57 +1,48 @@
 ---
 name: arena
-description: Compare credible competing approaches for consequential, unresolved design or implementation decisions where choosing poorly would be costly and direct investigation cannot settle the tradeoff. Also use for explicit {{INVOKE}}arena or approach comparison requests.
+description: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape."
+disable-model-invocation: true
 ---
 
 # Arena
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Open a todolist with one entry per phase (Frame, Fan out, Cross-judge, Pick, Graft, Verify) before launching anything.
 
-Use Arena when the user explicitly asks for a comparison, or when the lead judges that a consequential decision meets the automatic-use criteria below.
+## Phase A: Frame
 
-Invoke explicitly as `{{INVOKE}}arena <task>` or "use Arena for this." Explicit requests do not need to meet the automatic-use criteria. Respect a user's instruction to avoid Arena or additional agents.
+Every candidate gets the same prompt, so the prompt is the contract.
 
-## Automatic use
+1. State the artifact each candidate is producing.
+2. Derive the rubric, 3-6 concrete gradeable criteria for what success looks like on *this* task. It is the picker's tool in Phase D. Candidates only see the task.
+3. Pick the runners. Use the `arena runners` line in `~/.cursor/rules/pstack-models.mdc`. If the rule or that line is missing, default to one each on `claude-opus-5-5-xhigh` and `grok-4.7-xhigh-fast`. An `auto` or `inherit-parent` entry in this line or the cross-judge line means the parent model, so omit `model` for it. If the Task tool rejects a configured entry, run that seat on its family's default and say so. Families go by prefix: `claude-*`, and `grok-*` with `cursor-grok-*` and `composer-*`. A refused `composer-*` entry runs on `grok-4.7-xhigh-fast`. With no family match, use `claude-opus-5-5-xhigh`. If it rejects a default, use the closest valid slug of the same family from its error message. Spawn more runners when the arena covers multiple design directions. Use the same model N times when the work is generation-bound rather than judgment-sensitive. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+4. Give each candidate its own output location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`), per the **separate-before-serializing-shared-state** principle skill.
 
-The lead may initiate Arena without asking permission when all of these hold:
+## Phase B: Fan out
 
-- There is an unresolved choice between at least two credible approaches, with materially different designs or tradeoffs.
-- Choosing poorly could cause substantial rework or affect important correctness, performance, ownership, or compatibility constraints. Examples include a costly architectural boundary, a major migration strategy, or competing concurrency designs.
-- Existing context and focused inspection leave a genuine tradeoff; reading the code or a cheap permitted observation would not adequately settle it.
-- The comparison has a bounded artifact and concrete success criteria within the user's task.
+Spawn all N subagents in one message with `run_in_background: true`, each with the task, the path to the shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming the alternatives it considered and what it rejected.
 
-Before spawning, briefly announce the decision being compared and why independent candidates are useful. Choose design sketches or proposals when those can settle the decision; build full competing implementations only when their behavior is needed to choose.
+If a candidate produces no output, proceed with N-1 and note the dropout.
 
-Keep use proportional:
+## Phase C: Cross-judge
 
-- Skip routine edits, mechanical refactors, familiar patterns, obvious fixes, wording choices, and questions answerable by direct investigation. Task size or difficulty alone is not a trigger.
-- Normally make one automatic Arena run per task. An additional run needs a materially distinct consequential decision or new evidence that invalidates the earlier framing; state that reason before launching. Do not repeat a settled comparison merely for reassurance.
-- Only the lead initiates automatic runs. Candidates, judges, and other delegates must not start nested Arena runs.
-- Keep the default two runners and one judge. Add candidates only for an explicit request or an additional credible approach that the comparison needs; explain the expansion.
-- Reuse the comparison's result as work continues. Arena selection alone does not authorize tests; a bug-fix task may independently qualify under the user's configured TDD policy. Automatic selection does not authorize external actions or edits beyond the user's task.
+After all Phase B candidates complete, choose one model from the `arena cross-judge pool` line in `~/.cursor/rules/pstack-models.mdc`. If the rule or that line is missing, choose from `claude-opus-5-5-xhigh` and `grok-4.7-xhigh-fast`. Prefer a different model family from the parent's. Spawn one readonly judge subagent on that model. It sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with your reading in Phase D. Don't spawn it while candidates are still writing.
 
-## Model roles
+## Phase D: Pick a base
 
-- Read `{{MODEL_REGISTRY}}`. Default to two candidate agents using `roles.arena_runner` and one judge using `roles.arena_judge`; resolve each alias through the `models` table to obtain `model` and `reasoning_effort`.
-- If a required default cannot be resolved, report the configuration issue rather than inventing a replacement. A complete explicit per-run override may supply the missing settings.
-- These settings apply only to this Arena run. Do not change the user's global Codex model or subagent defaults.
-- Respect model or reasoning-effort choices the user gives for a particular run. If the subagent tool cannot honor a requested setting, report that and do not silently substitute another model.
-- Use native general-purpose native agents with explicit model and reasoning settings, rather than preset worker or reviewer roles that pin conflicting settings. If the spawning tool exposes `fork_turns`, use `fork_turns: "none"` when supplying overrides and provide a self-contained task brief with file pointers.
+Read every candidate end to end before picking. Score each against the rubric criterion by criterion, not on holistic feel, and compare with the cross-judge. Agreement on the base confirms the pick. Disagreement means one of you is biased or the rubric was ambiguous. Read both rationales before deciding.
 
-## Frame and run candidates
+Pick the base a future maintainer can extend most easily without breaking invariants. When two feel tied, prefer the cleaner boundary or smaller API, per the Laziness Protocol.
 
-1. Identify the requested artifact, goal, constraints, and what a useful result must satisfy. Build a short evaluation rubric with three to six concrete criteria from that intent.
-2. Give every candidate the same task brief and relevant context. Give each candidate a distinct output location. Candidates should not see or discuss one another's work and must not spawn more agents.
-3. For code changes, use a separate worktree or isolated checkout per candidate with equivalent starting states. Include relevant uncommitted changes in that state; a checkout of HEAD alone omits them. Identify the base and any exclusions before launching. Candidates must not edit the shared target checkout or manipulate shared Git references concurrently. If isolation is unavailable, ask candidates for separate patch files or proposals and report what was not executed. For design-only work, use separate proposal files.
-4. Include this instruction in every candidate and judge task: read `{{GLOBAL_INSTRUCTIONS}}` and `{{SKILLS_ROOT}}/arena/SKILL.md` in full before starting, then execute only the assigned candidate or judge scope. Pass the same global-read requirement to any native agent spawned from that task.
-5. Launch all candidates together with the resolved runner model and effort. Ask each for its artifact and a short rationale naming the main alternative it rejected.
+## Phase E: Graft
 
-If a candidate fails, record the failure and compare the completed artifacts. With fewer than two usable candidates, report that the comparison is incomplete; do not present a sole candidate as a comparative winner.
+Walk each losing candidate once more for what is worth porting into the base, usually one or two things per candidate, not most of it. Fold each graft in by hand, per the **redesign-from-first-principles** principle skill, so the result stays coherent under one mental model. Don't paste mechanically.
 
-## Judge and synthesis
+If the candidates converge on one shape, that is strong agreement. Note it and ship the consensus shape. No graft is needed. If they wildly diverge, Phase A was under-specified. Reframe and re-run rather than averaging the divergence.
 
-After all candidates finish, launch one judge with the resolved judge model and effort. Give it the rubric and candidate outputs labeled neutrally, without the candidates' reasoning-effort settings. Ask it to score each criterion, identify tradeoffs, and recommend a base. The judge must not edit candidate artifacts or the target checkout.
+## Phase F: Verify
 
-Read every candidate yourself as well. Use the judge's comparison as evidence, then select the strongest base. Graft compatible ideas only when they improve the result; do not average designs that conflict. Apply the selected synthesis to the user's target checkout while preserving unrelated work.
+Verify the synthesized artifact like any other output, per the **prove-it-works** principle skill. If verification finds a problem the arena missed, either Phase A was wrong (re-frame and re-run) or a candidate caught it and you missed the graft (go back to Phase E). Don't paper over it.
 
-Check the synthesized result against the requested finish condition. Report the actual runner and judge models and efforts, chosen base, useful grafts, rejected alternatives, verification evidence, and anything left unverified. Clean up only temporary worktrees and files created for this Arena run.
+## Outputs
+
+One synthesized artifact, with a short synthesis note alongside naming the base and why, the cross-judge's verdict, each graft with its source candidate, what was rejected and why, any convergence or dropouts, and the verification result.

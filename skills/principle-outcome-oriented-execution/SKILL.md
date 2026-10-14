@@ -1,10 +1,21 @@
 ---
 name: principle-outcome-oriented-execution
-description: "Plan multi-step changes around the requested end state and checks that demonstrate completion."
+description: "Apply during planned rewrites and migrations with explicit phase boundaries. Converge on the target architecture; don't preserve smooth intermediate states with throwaway compatibility code."
+disable-model-invocation: true
 ---
 
-# Outcome Oriented Execution
+# Outcome-Oriented Execution
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Optimize for the intended, verifiable end state rather than preserving smooth intermediate states.
 
-For multi-step work, state the intended end result and the observable checks that will show it is complete. Organize edits into coherent checkpoints when that makes failures easier to locate or review. Temporary breakage is acceptable only when it is explicitly planned, scoped, reversible, and allowed by the task; preserve compatibility when users or callers rely on it. Run checks against the actual affected artifact and report unavailable or inconclusive evidence plainly. Do not add phases, commits, or broad verification requirements when a focused change has a simpler path to the same outcome.
+**Why:** Keeping every intermediate step fully stable often creates temporary compatibility code that becomes long-lived debt. Converge on the target architecture and prove correctness at explicit verification boundaries.
+
+**Core rule:**
+- Prioritize end-state integrity over transitional stability
+- Intermediate breakage is acceptable when it is planned, scoped, and reversible
+
+**Guardrails:**
+- Use this for planned rewrites and migrations with explicit phase boundaries
+- Declare where temporary breakage is acceptable
+- Keep high-signal checks for actively touched areas while migrating
+- Require full static and runtime verification at plan completion

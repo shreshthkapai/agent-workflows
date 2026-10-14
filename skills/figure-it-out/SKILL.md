@@ -1,36 +1,52 @@
 ---
 name: figure-it-out
-description: Plan and carry out genuinely complex, unusual, or cross-cutting work requiring coordinated phases and unresolved dependencies when a narrow workflow is insufficient. Reuse one proportionate plan. Also use for explicit {{INVOKE}}figure-it-out requests.
+description: "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions. Use for /figure-it-out or 'figure it out'."
+disable-model-invocation: true
 ---
 
-# Figure It Out
+# Figure it out
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+When the task matches no playbook, design one. The deliverable before any code is the workflow itself: a sequence of phases that scales rigor to the task, runs the scientific method, and leaves a decision trail a human can audit after stepping away.
 
-The lead may use this workflow automatically when the task needs coordinated phases, unresolved dependencies, or sequencing of consequential unknowns that a straightforward approach cannot handle well. Use judgment; a long file list, many tool calls, or an unfamiliar detail alone is insufficient.
+## Start
 
-Skip routine edits, clear bounded fixes, ordinary explanations, and narrow clarification questions. Explicit `{{INVOKE}}figure-it-out` requests remain available. If the user asks only for a plan, produce the plan without starting implementation.
+Open a todolist whose first item is to read the Principles section of the **poteto-mode** skill. Then add the phases below as todos.
 
-Create one plan for the task and reuse it through follow-ups. Update that plan when evidence materially changes the approach; do not restart the workflow or create a new plan for every phase or question. Delegates execute their assigned units rather than starting a nested planning workflow.
+## Phase A: Frame
 
-## Frame and plan
+Ground first, then commit. Don't start the run until you can state:
 
-1. State the desired outcome, scope, constraints, risks, assumptions, and observable finish condition. Inspect the relevant repository or artifact and note its baseline before changing it.
-2. Identify the riskiest unknowns and investigate those first. Before implementation, create a reviewable Markdown plan sized to the task, with the outcome, constraints, risks, finish condition, and a phase table listing each phase's output and completion check. Use `.audit/<task-slug>-plan.md` in the current project by default, or the path the user requests. Keep the plan current if evidence materially changes the scope, sequence, or finish condition; log why it changed.
-3. Keep brief progress and decision notes in the same plan, including material choices, their reasons, observed checks, and evidence pointers. Creating this plan does not activate Show-me-your-work, create a separate TSV log, or launch an audit reviewer. Use that skill only for a qualifying retrospective request or an explicit request to keep a trail.
+- The definition of done as a falsifiable predicate (the **prove-it-works** principle skill).
+- Scope, quantified: rough units and effort, plus the blockers grounding surfaced.
+- The rigor level, biased high. One-way doors and high blast radius get more. Reversible low-stakes steps get less. Rigor is gates and artifacts, not "try harder".
 
-Let evidence change the plan. Keep notes about meaningful decisions, checkpoints, failed hypotheses, and results; do not record every tool call. Keep user changes and unrelated files intact. Revert only changes isolated to this task when a failed attempt needs cleanup.
+Present the framing and tradeoffs before committing to a long run. Reversible work proceeds (the **never-block-on-the-human** principle skill), but a multi-hour run earns one checkpoint.
 
-## Work in verifiable units
+## Phase B: Design the workflow
 
-For each phase, state the working hypothesis, make the smallest useful change, inspect its effect on the real affected surface, and update the plan with the evidence and outcome. Choose checks that fit the risk and the user's instructions; do not force tests or build a new harness merely to follow this workflow. Distinguish inspection, executed checks, and unverified assumptions.
+Decompose into atomic, independently-landable units. Sequence riskiest-unknown-first. Scaffold and verification come before features (the **foundational-thinking** principle skill).
 
-Follow `{{GLOBAL_INSTRUCTIONS}}`, including its code-delegation rule for substantial, understood, bounded implementation work. The lead keeps ownership of framing and design, inspects delegated changes, and is responsible for the final result. Give any worker a bounded brief, file pointers, constraints, finish condition, and the required global-instructions read.
+- Build the verification harness before the work, with the baseline captured from the pre-change state, so the check reads as "old value vs new value".
+- For one-way-door design decisions, run the **architect** skill (it runs **arena**). Skip it for mechanical work whose shape is already concrete. A second arena over a settled design is over-engineering (the **laziness-protocol** principle skill).
+- Decide what fans out. Parallelize only across seams, and give each worker its own worktree or branch (the **separate-before-serializing-shared-state** principle skill). Don't over-fan. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+- Write the designed phase list down. That list is what the human reviews.
 
-Do not require `{{INVOKE}}how`, `{{INVOKE}}why`, `{{INVOKE}}architect`, `{{INVOKE}}poteto-mode`, or principle skills. For consequential unresolved decisions with credible alternatives, the lead may use Arena after reading `{{SKILLS_ROOT}}/arena/SKILL.md` and applying its automatic-use criteria and repetition limits. Do not treat every phase as a reason for another Arena run. For a bug-fix unit meeting the configured TDD criteria, read `{{SKILLS_ROOT}}/tdd/SKILL.md` and use its focused regression workflow; do not manufacture tests for unrelated units. Interrogate remains explicit. Do not start unrelated investigation, scan other session transcripts, or commit, push, or deploy as an automatic phase.
+Then execute the design. Add its steps to the todolist as concrete items between the Phase C and Phase D entries. Run each under the Phase C loop discipline, and weave the Phase D log through them, a row as each step lands, rather than saving the whole trail for the end.
 
-## Close out
+## Phase C: Run the loop
 
-At meaningful phase boundaries and at completion, update the plan's progress notes with actual commands, paths, observations, and outcomes. If the user requested a separate decision trail, follow Show-me-your-work's append-only format and audit rules for that trail. Otherwise do not create or audit a separate log automatically.
+Each unit is an experiment. State the hypothesis, make the smallest change, measure against the predicate on the real artifact, keep it if it advanced, revert it if it didn't. Apply the **sequence-verifiable-units** principle skill, verifying each unit before starting the next instead of batching checks at the end.
 
-Report the plan and material changes briefly, then label the finish condition **VERIFIED**, **NOT VERIFIED**, or **INCONCLUSIVE**. Give the evidence for that label and name any remaining risk, incomplete phase, or check that could not be performed. A planned check is not evidence that it passed.
+- Verify by inspecting the artifact, never a self-report. When something passes too easily, suspect the observation method before the system.
+- Pair delegated work with a judge. If a worker games the gate, reset and harden the contract. If the gate itself is wrong, fix the gate in its own change rather than routing around it.
+- A verdict is VERIFIED, NOT VERIFIED, or INCONCLUSIVE. Inconclusive is not a pass. Don't hide a negative.
+
+## Phase D: Keep the audit trail
+
+Log the run via the **show-me-your-work** skill. figure-it-out's work is usually ambitious enough to commit the trail so the reviewer can read it in the PR. The trail plus the diff is what lets the human come back and trust the work.
+
+## Phase E: Verify and hand back
+
+Check the whole against the Phase A predicate on the real product, not just the harness. Encode any recurring correction as a gate, a lint rule, a check, or a script (the **encode-lessons-in-structure** principle skill).
+
+**Reply:** the playbook you designed, the rigor level and why, the decision-trail path, what's verified against the predicate, and what's still open.

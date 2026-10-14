@@ -1,10 +1,22 @@
 ---
 name: principle-migrate-callers-then-delete-legacy-apis
-description: "Update in-scope internal callers before removing an obsolete API when compatibility permits."
+description: "Apply when introducing a new internal API while old callers still exist. Migrate callers and delete the old API in the same wave instead of preserving compatibility layers."
+disable-model-invocation: true
 ---
 
-# Migrate Callers Then Delete Legacy Apis
+# Migrate Callers Then Delete Legacy APIs
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+When we decide a new API is the right design, migrate callers and remove the old API in the same refactor wave instead of preserving compatibility layers.
 
-When replacing an internal API, inventory its callers and identify any external consumers or compatibility promises. Update the internal callers that are within scope, then remove the old path only when no required consumer depends on it and the migration can be delivered coherently. Retain an adapter or migration period when a public contract, staged rollout, or user requirement calls for it. Update checks to reflect the intended contract, but do not delete behavior tests merely because they exercise the old implementation. Keep any staged migration reversible and report callers or dependencies that cannot be safely changed in this task.
+**Rule:**
+- Do not keep legacy API paths only because internal callers still exist
+- Inventory callers, migrate them, and delete the old API immediately
+- Treat temporary adapters as exceptional and time-boxed, not default architecture
+- Update tests to assert the new contract, and delete tests that only protect pre-refactor implementation details
+
+**When this applies:**
+- No external users depend on backward compatibility
+- The project can absorb coordinated breaking changes
+- The new API is part of a simplification or refactor initiative
+
+Keeping both old and new APIs creates dual-path complexity, slows cleanup, and makes the codebase feel append-only.

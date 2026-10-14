@@ -1,10 +1,34 @@
 ---
 name: principle-boundary-discipline
-description: "Place validation where untrusted inputs or runtime-dependent invariants enter the system."
+description: "Apply when wiring validation, error handling, or framework adapters. Concentrate guards at system boundaries (CLI, config, network, external APIs); trust internal types and keep business logic in pure functions."
+disable-model-invocation: true
 ---
 
 # Boundary Discipline
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Place validation, type narrowing, and error handling at system boundaries. Trust internal code unconditionally. Business logic lives in pure functions. The shell is thin and mechanical.
 
-Validate and normalize data at external boundaries such as CLI arguments, configuration, network messages, and persisted input. Keep established internal invariants clear so every consumer does not repeat the same check. Do not assume all internal code is trustworthy: asynchronous state, mutable shared data, partial failures, or violated contracts may still need runtime validation. Keep business logic independent of framework wiring when that makes the behavior easier to reason about, but do not split code into pure helpers without a concrete benefit. Place each check where its input can actually be invalid and where failures can be handled meaningfully.
+**Why:** Scattered validation is noisy, redundant, and gives a false sense of safety. Keep logic out of framework wiring so it can be tested without the framework.
+
+**The pattern:**
+- **At boundaries** (CLI args, config files, external APIs, network protocols): validate, return errors, handle defensively.
+- **Inside the system:** typed data, error propagation, no re-validation. Trust the types.
+- **Across the boundary.** Expose domain concepts, not the boundary's private representation. Keep general-purpose mechanism inside and special-purpose policy at the edge.
+
+**Applications:**
+
+Validation and error handling:
+- Validate config at parse time (the boundary), not inside business logic
+- Parse raw data into domain types at the boundary
+- Do not re-export transport, storage, framework, or wire types through the public surface
+- No redundant nil checks deep in call chains if the boundary already validated
+
+Code organization:
+- Business logic in pure functions with no framework dependencies
+- Parse functions: pure transforms from raw bytes to typed state
+- Prompt construction: structured state in, string out
+- Scoring and assessment: pure transforms from state to results
+
+**The tests:**
+- "Is this data crossing a system boundary right now?" If not, validation is redundant.
+- "Can this be a pure function that the shell just calls?" If yes, extract it.

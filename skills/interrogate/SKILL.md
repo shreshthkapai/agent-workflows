@@ -1,67 +1,74 @@
 ---
 name: interrogate
-description: Independently review a code change with several models, then synthesize evidence-backed findings about correctness and code quality. Use only for an explicit {{INVOKE}}interrogate or Interrogate review request.
+description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Multiple LLM reviewers challenge changes from independent angles."
+disable-model-invocation: true
 ---
 
 # Interrogate
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Spawn one reviewer per configured model to adversarially review code changes. The adversarial signal comes from model diversity, not assigned personas. The deliverable is a synthesized verdict. Do NOT auto-apply changes.
 
-Run only when the user explicitly requests Interrogate, such as `{{INVOKE}}interrogate the fix you just made` or "use Interrogate to review this branch." Produce a review report. Do not apply fixes, refactor code, commit changes, or publish review comments as part of this workflow.
+## Step 1, Scope
 
-## Review models
+Identify what to review from context:
 
-Read `{{MODEL_REGISTRY}}` and launch one independent native subagent for each alias in `roles.interrogate_reviewers`. Resolve aliases through the `models` table to obtain `model` and `reasoning_effort`. If a required default cannot be resolved, report the issue rather than inventing a replacement; complete explicit per-run overrides may supply the settings.
+- If the user points at specific files or a diff, use that.
+- If on a feature branch, run `git diff main...HEAD` (or the appropriate base branch) for the full changeset.
+- If the user's message references recent work, gather the relevant files.
 
-Different reasoning settings do not constitute different model families. Report the actual roster and its diversity accurately. The lead session synthesizes the findings using its current model; no additional judge is required.
+Package the diff or file contents with any surrounding context files the reviewers need to understand the code.
 
-Honor explicit per-run overrides. Use general-purpose native agents with explicit model and reasoning settings rather than preset roles that pin conflicting settings. If the spawning tool exposes `fork_turns`, use `fork_turns: "none"` when supplying overrides and give each reviewer a self-contained brief. Speed follows the parent session. Do not change global model, speed, or agent defaults.
+## Step 2, Intent
 
-If the runtime cannot honor a requested model or effort, report the limitation without silently substituting. Continue with available reviewers when useful, recording failures and the actual roster. With fewer than two completed independent reviews, report that the multi-review comparison is incomplete.
+Before spawning reviewers, state the intent in one clear paragraph from the user's message, commit messages, the PR description if one exists, and the code. If you're unsure about the intent, ask the user before proceeding.
 
-## Establish the scope and intent
+## Step 3, Spawn Reviewers
 
-- An explicit diff, commit, PR, or file selection takes precedence.
-- For "the fix you just made," use conversation context to identify the fix, then inspect the actual code and changes. Context identifies the target; it is not evidence that the implementation is correct. Exclude unrelated working-tree changes.
-- For a branch review, identify the appropriate base and review changes from the merge base. Include relevant staged, unstaged, and untracked changes only when they belong to the requested scope.
-- For an older fix, resolve the referenced commit or artifact and follow the surrounding code needed to understand it. If the target cannot be established, request the missing identifier rather than guessing.
+Launch all reviewers in a single message with the Task tool, one per entry on the `interrogate reviewers` line in `~/.cursor/rules/pstack-models.mdc`, labeled Reviewer A, B, and so on to match the entry count. If the rule or that line is missing, use the table defaults.
 
-State the scope and intended behavior briefly, including any unresolved assumptions. Collect one shared diff or code snapshot and relevant context paths so every reviewer starts from the same changes. Use file pointers for large artifacts rather than duplicating full transcripts. Reviewers may follow callers, callees, types, and existing checks to substantiate findings.
+| Subagent | Default model |
+|----------|---------------|
+| Reviewer A | `claude-opus-5-5-xhigh` |
+| Reviewer B | `grok-4.7-xhigh-fast` |
 
-## Independent review
+Each reviewer gets `subagent_type: generalPurpose`, `readonly: true`, and `model` set to its configured entry, or its table default when there is no configured line. Omit `model` for an `auto` or `inherit-parent` entry, so that reviewer runs on the parent model.
 
-Launch reviewers together when capacity permits. Give every reviewer the same scope, intent, artifact pointers, constraints, rubric below, and required finding format. Do not assign different personas or show other reviewers' findings.
+If the Task tool rejects a configured entry, run that reviewer on its family's table default and say so. Families go by prefix: `claude-*`, and `grok-*` with `cursor-grok-*` and `composer-*`. A refused `composer-*` entry runs on Reviewer B's default. With no family match, use Reviewer A's default. If it rejects a table default, spawn with the closest equivalent from the valid slugs in its error message (prefer the same family and reasoning tier), and open a separate PR to update the default table. Do not block the review on the slug issue. Never treat an alias entry as a rejected slug or apply either fallback to it.
 
-Include these instructions in every reviewer task:
+Read `references/reviewer-prompt.md` and fill in the same template for every reviewer with the stated intent, the diff or file contents, the rubric from `references/rubric.md`, and the code-quality lens from `references/code-quality-review.md`. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
 
-- Before starting work, read `{{GLOBAL_INSTRUCTIONS}}` and `{{SKILLS_ROOT}}/interrogate/SKILL.md` in full and follow applicable repository instructions. Execute only the assigned review scope. Pass the same global-read requirement to any native agent you spawn.
-- Do not spawn agents. Review only: do not modify files, apply fixes, commit, or perform external writes. Use a read-only sandbox when the runtime supports one.
-- Trace suspected issues through actual code. Report concrete evidence and conditions under which the problem occurs. Do not invent defects to fill a quota; a review with no substantiated findings is valid.
-- Do not add or run tests unless the user has explicitly requested testing or verification. Inspect existing checks and evidence, and clearly distinguish inspection from executed verification.
-- Return findings to the lead without writing a separate report file.
+## Step 4, Synthesize
 
-Apply the following lenses where relevant:
+As results come back, build a unified picture. Parse every reviewer's findings. Merge findings that describe the same issue differently, and note which models raised each one. Findings two or more models raised independently are the highest signal. Read a lone model's finding, but weight it accordingly. Note disagreements. If one model flags something and another explicitly says the opposite, that is context for the verdict.
 
-- **Correctness and regressions:** intended behavior, edge cases, error paths, state transitions, concurrency, retries, and idempotency.
-- **Root cause:** whether a fix restores the underlying contract or hides an invariant violation. Inspect the surrounding execution path.
-- **Structure and data model:** ownership, module boundaries, validation at entry points, clear types, and integration with existing patterns.
-- **Complexity and maintainability:** unnecessary branches, wrappers, duplicate helpers, obsolete compatibility paths, and simplifications that remove moving parts. Explain concrete maintenance costs; avoid cosmetic nits and speculative abstractions.
-- **Security:** substantiate input-to-sink paths, authorization gaps, or exposed secrets. Keep sensitive values out of the report.
-- **Verification evidence:** whether existing checks cover the changed behavior and failure cases. Missing evidence is a gap, not proof of a bug.
+## Step 5, Lead Judgment
 
-For each finding, provide a concise title, location, impact or severity, evidence or execution path, triggering conditions, and a suggested correction or simplification. Separate demonstrated defects from optional improvements and uncertain concerns.
+You are the lead reviewer, a pragmatic senior engineer, not a neutral aggregator. Read `references/lead-judgment.md` for the full framework. Put every finding in one of four buckets, with the model(s) that raised it and a one-line rationale.
 
-## Lead synthesis and report
+- **Act on**. Real issues affecting correctness, security, or maintainability given the actual goals. They would block a real PR.
+- **Consider**. Legitimate, but you're not sure they outweigh the cost of addressing them now. Worth the user's attention.
+- **Noted**. Technically valid but not actionable. Context-dependent, premature optimization, or low-impact at this stage.
+- **Dismissed**. Wrong, nitpicky, or missing context, with a brief reason.
 
-Inspect the relevant code behind material findings yourself. Deduplicate reports of the same underlying issue and record which reviewers raised them. Agreement supports confidence but does not establish correctness; a well-supported finding from one reviewer still matters. Resolve disagreements from evidence and label remaining uncertainty.
+## Output Format
 
-Categorize findings with a brief rationale:
+### Intent
+> [The stated intent paragraph from Step 2]
 
-- **Act on:** substantiated correctness, security, regression, or material maintainability problems within the task's goals.
-- **Consider:** worthwhile improvements whose benefit depends on tradeoffs.
-- **Noted:** valid observations with low immediate impact.
-- **Dismissed:** unsupported, incorrect, cosmetic, or missing-context findings, with the reason.
+### Reviewers
+- Reviewer [label]: [model name], [N findings] (one bullet per reviewer)
 
-Return the report in chat by default. Include scope and intent, the actual reviewer models and efforts, prioritized actionable findings with file references, other material categories, agreement or disagreement, and verification limits. Empty categories may be omitted. Do not claim approval solely because several reviewers agreed or found nothing.
+### Act On
+[Each: description, which models raised it, why it matters.]
 
-Write a Markdown document only when the user requests one. Use the requested path; if they ask for a document without a path, choose a sensible local location and report it. The lead writes the synthesized report, not separate reviewer reports. Record incomplete reviews plainly. Remove only temporary artifacts created for this review.
+### Consider
+[Each: description, which models raised it, the tradeoff.]
+
+### Noted
+[Brief list.]
+
+### Dismissed
+[Each with a brief rationale.]
+
+### Agreement Map
+[Where models agreed and diverged, and what that pattern tells us.]

@@ -1,10 +1,17 @@
 ---
 name: principle-sequence-verifiable-units
-description: "Break substantial multi-step work into coherent checkpoints that can be checked before continuing."
+description: "Apply to multi-step work (sweeps, migrations, runs of similar edits) and to how you stack commits and PRs. Break work into small units that each end in a verifiable state, check each before the next, and order delivery so the sequence proves itself to a reviewer."
+disable-model-invocation: true
 ---
 
-# Sequence Verifiable Units
+# Sequence work into verifiable units
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Order work as a sequence of small units, each ending in a state you can check, and don't advance until the current one is green.
 
-For a migration, sweep, or multi-part change, choose checkpoints that are meaningful and easy to review. Check a unit before building further on it when that catches failures cheaply, but do not demand a test after every line or mechanical edit. Preserve the intended order of the workflow, including an expected failing test in a red-to-green fix. Use intermediate checks that match the state of that phase and finish with checks for the requested outcome. Commits, rebases, stacked changes, and pull-request ordering are delivery choices, not requirements of this principle.
+**Why:** A break caught at the unit that caused it is cheap to localize. A break caught after a batch is buried, and you have already built further on a broken base. Sequencing those same units into a delivery a reviewer can replay turns "trust me" into "watch it go red, then green."
+
+**Execution.** In a sweep, migration, or any run of similar edits, verify each change before starting the next. Each unit is a before/after bracket: known-good state, one change, run the check, then proceed. Rebase onto clean trunk first so every check measures against the real baseline. When a lever does the edits, the per-unit check is nearly free. Run it anyway.
+
+**Delivery.** Stack commits and PRs in the order that proves the work. The canonical shape is the failing test first, then the fix on top. Other story orders are a subtraction before the reshape, a baseline capture before the treatment, the scaffold before the feature. Each commit lands on its own and the sequence reads as an argument.
+
+The sequencing complement to the **prove-it-works** principle skill, which keeps each check real, and the **build-the-lever** principle skill, which makes the per-unit check cheap.

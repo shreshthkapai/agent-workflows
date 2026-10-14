@@ -1,58 +1,82 @@
 ---
 name: show-me-your-work
-description: Explain and audit substantial work when the user asks how it was done or why consequential choices were made across a complex process. Skip narrow clarifications. Also use for explicit {{INVOKE}}show-me-your-work or decision-trail requests.
+description: "Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). Local by default; commit it when a reviewer needs the trail to trust the result. Use for /show-me-your-work, autonomous or multi-phase runs, or work a human reviews after stepping away."
+disable-model-invocation: true
 ---
 
-# Show Me Your Work
+# Show me your work
 
-Read `{{RUNTIME_GUIDE}}` for host-specific invocation, agent, model, and capability rules.
+Keep one canonical log.
 
-## When to use
+## The format
 
-Automatically select this skill only when the user asks for a retrospective account of the agent's work, such as "how did you do this?" or "why did you choose this approach?", and the requested explanation concerns a substantive multi-stage process or consequential tradeoffs needing an evidence-based account.
+A single TSV file, one row per decision. Cells stay single-line. Evidence is a pointer, not prose.
 
-The question's scope matters. A small clarification about one line, command, term, or straightforward choice should receive a direct answer, even if the surrounding project is large. Do not activate for generic how/why questions about a subsystem, ordinary status updates, task completion alone, or every follow-up question.
+Copy `references/decision-log-template.tsv` (the header row) to start a clean log. Columns:
 
-Explicit `{{INVOKE}}show-me-your-work` requests remain available, including asking for a trail while a task is being performed. Without that request, do not start background TSV logging or an audit merely because a task is long or Figure-it-out is active.
+- **ts.** ISO8601 timestamp.
+- **phase.** The phase or workstream.
+- **decision.** What was chosen or done, one line.
+- **why.** The reason in plain words. If a principle drove it, say it plainly, not as a jargon tag.
+- **evidence.** A link or path that proves it: commit SHA, PR number, `file:line`, or an artifact, trace, or screenshot path. Never a paragraph.
+- **result.** The outcome or predicate state: `tests green`, `reverted`, `pixel-diff 0`, `INCONCLUSIVE`, `open`.
 
-Use one canonical local trail and one audit for the requested body of work. Reuse the report for follow-ups; repeat the audit only when the user asks or new evidence, a distinct substantial scope, or a material unresolved concern warrants it. The lead is the sole log writer; other agents may read but not edit the log.
+An example, plain-spoken so a reviewer reads it at a glance.
 
-## Retrospective account
-
-Identify the work the user means from the current thread and referenced artifacts. Reuse an existing task log or plan when available. Explain the important steps, decisions, alternatives and tradeoffs, observed outcomes, and evidence gaps within the question's scope.
-
-If there is no log, compile a retrospective trail only from supported facts in the thread and actual artifacts. Timestamp new rows as the time they are recorded and identify them as retrospective reconstruction; do not invent original event times or present reconstructed notes as a contemporaneous log. Separate recorded reasons from later inference. If the relevant context or execution evidence is unavailable, report the gap rather than inventing actions or claiming a complete audit. Do not scan unrelated conversation history.
-
-## Create and append
-
-For a qualifying retrospective account or an explicitly requested trail, use the user's requested path when supplied. Otherwise use `.audit/<task-slug>.tsv` relative to the current project. Do not overwrite an existing log, commit it, change `.gitignore`, or publish it. Keep a single canonical log for a task.
-
-The exact tab-separated header is:
-
-```text
+```
 ts	phase	decision	why	evidence	result
+2026-05-24T09:02:00Z	frame	counted the work first, about 100 components and roughly 75 hours	wanted to know the size before starting a long run	commit 3a9f1c2	found 5 things to sort out before starting
+2026-05-24T09:40:00Z	harness	took screenshots of the old version before changing anything	so we can compare old against new and catch any visual change	scripts/snapshot.sh, baseline/	saved 120 reference screenshots
+2026-05-24T11:15:00Z	widget	moved the widget styles over without changing how it looks	keep the change small and the result identical	commit 7c21e0a, pixel-diff 0	looks identical, tests pass
+2026-05-24T12:30:00Z	widget	threw out a helper's work because its screenshots were blank	checked the real files instead of trusting its summary	worktree reset	reverted, tightened the instructions for next time
 ```
 
-For an explicitly requested ongoing trail, append rows as material decisions and checkpoints occur. For a retrospective trail, append only supported decisions and outcomes relevant to the question. Avoid routine tool-call rows. Record actual paths and commands in `evidence`; distinguish observed results from planned checks. If an entry is wrong or later evidence changes it, append a correction that names the superseded entry.
+## Logging a row
 
-Use the bundled helper, passing the filename first, then `phase`, `decision`, `why`, `evidence`, and `result` as positional arguments:
+Write each entry the way you'd tell a teammate what you did. Plain words, concrete actions, no AI speak or abstract jargon (the **unslop** skill applies to log text too).
 
-```sh
-python3 "{{SKILLS_ROOT}}/show-me-your-work/scripts/log.py" .audit/task-slug.tsv planning "Check the current behavior first" "A baseline is needed to judge the change" "src/cart.py; python -m app" "Baseline observed: empty cart costs £5"
-```
+Use the helper `scripts/log.sh <logfile> <phase> <decision> <why> <evidence> <result>`. It stamps `ts`, writes the header on first use, strips stray tabs/newlines, and prefixes any cell starting with `=`, `+`, `-`, or `@` with a single quote. A bare `printf` appending a row works too, but mind those same bytes if cells come from generated or user-supplied text.
 
-The helper supplies a UTC ISO 8601 timestamp, writes the header on first use, normalizes tabs and newlines inside cells, and prefixes spreadsheet-formula-like cells safely. It locks the log while checking the exact header and appending. If an existing file has a different header, stop and report the conflict; do not replace or repair it in place.
+Log decision points and checkpoints, not every action: a fork chosen, a unit completed with its verification result, a pivot or revert with its trigger, a blocker surfaced, a gate fixed. For loop runs, one row per iteration. Skip the trivial and self-evident.
 
-## Audit the record
+A run is one agent conversation, including its later turns and any summary of it. A pickup, a replacement agent, or a new chat starts a new run. When a run adds to a log that already has rows, its first row has phase `start`, and so does its first row after another run's `start` row. So a run that comes back to a log in a later turn first reads the log's last rows to see whether another run wrote since. A `start` row names the `ts` range of the rows before it that this run did not write, and its evidence names this run, such as its agent id. Use phase `start` for nothing else.
 
-For the requested account, compare every material claim in the trail with the available task evidence and actual artifacts. For an explicitly requested ongoing trail, perform this audit at handoff. Check that commands were executed before describing their results as observed, that paths point to the relevant artifacts, and that failures, corrections, and verification gaps remain visible. Current artifacts alone cannot prove what happened earlier; identify that limitation when execution evidence is absent.
+## Where it lives
 
-Use the current session transcript only if its exact transcript is positively identified and available. Otherwise provide the reviewer a clearly labeled lead-authored digest of the goal, actions, results, corrections, dead ends, and constraints; do not imply that the digest is a complete transcript or search unrelated sessions to find one.
+By default the log is a working artifact, not committed. Keep it at `decisions.tsv` in the work dir, or `.audit/<task-slug>.tsv` when several efforts run at once, and leave it out of git.
 
-Have one independent, read-only audit reviewer inspect the log and referenced evidence. Read `{{MODEL_REGISTRY}}` and `{{RUNTIME_GUIDE}}` to resolve `roles.audit_reviewer` or the host adapter's legacy audit roles. Prefer an available reviewer from a different model family; if that requirement cannot be met, report the incomplete cross-family review. Do not invent a replacement or claim model diversity from independent agents alone. Honor per-run overrides and report the actual model and effort used.
+Commit it only when the work is ambitious enough that a reviewer needs the trail to trust the result.
 
-Use a general-purpose native agent with explicit model and reasoning settings, not a preset role that may pin different settings. If the spawning interface supports `fork_turns`, use `fork_turns: "none"` and send a self-contained brief containing the task outcome, log path, referenced artifacts, checks actually run, observed outcomes, constraints, and known gaps. The reviewer must read `{{GLOBAL_INSTRUCTIONS}}` in full and this skill in full before starting, must pass that same global-read requirement to any native agent it spawns, and must spawn no agents or write files. Let speed follow the parent session.
+## Rules
 
-Ask the reviewer only to check whether the log matches the supplied run evidence and artifacts, whether verification claims have evidence, and whether risky decisions or material gaps are missing. Label claims supported only by the lead-authored digest so they are not mistaken for independently observed execution. Do not ask it to redo the task or run tests without the user's explicit testing or verification request. If the model family cannot be determined, the runtime or capacity cannot supply the reviewer, or the review is incomplete, say so plainly; do not claim an independent or cross-family audit that did not happen.
+- Append-only. A wrong call gets a new row that supersedes it. Never edit or delete history.
+- Prefer evidence produced by committed scripts over hand-made one-offs (the **encode-lessons-in-structure** principle skill).
 
-Close with a short **Attention** section naming the actual reviewer model and concrete flags, or saying no material flags were found. Include unresolved evidence gaps. The lead remains responsible for the log and final claims.
+## Audit the log against the transcript
+
+At the end of the run, before handing back, check the log told the truth. Read this run's transcript under the active workspace's `agent-transcripts/` directory (the system prompt names the path). Don't glob across `~/.cursor/projects/*/`. That reads unrelated private chats. Walk this run's rows against what actually happened. Each stretch of them begins at one of this run's `start` rows, or at the first row if this run created the log, and ends at the next `start` row of another run:
+
+- Check that every row maps to a real decision or action.
+- Check that each row's evidence resolves and shows what the row claims.
+- A fork, pivot, or abandoned approach that shaped the work but isn't logged is a gap. Add it.
+
+Correct the log, not the story. The audit never edits or removes a row, even an invented one. When a row records neither a real decision nor a real action, or its claim or evidence is wrong, add a row that supersedes it with what actually happened and a pointer that resolves. This audit does not check rows outside this run's stretches. If this run's own work shows one of them is wrong, supersede it like any wrong call.
+
+## Cross-model review of the trail
+
+Before handing back, spawn a subagent on a different model family from the one that did the work. Self-review is not a substitute. The subagent reads the audit trail and the run's transcript, then flags what the user should pay attention to. Not a redo of the work, a scan for what's suboptimal or risky. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+
+- Decisions logged with weak or absent evidence.
+- Verification steps skipped or claimed without proof in the transcript.
+- Choices that look risky in hindsight (premature, scope-creeping, papering over a symptom).
+- Gaps the user would otherwise miss on a casual skim.
+
+Every reply for a run that produced a trail ends with an "Attention" section. Lead with the reviewer's model on its own line (`reviewed by <model>`), then list each flag pointing to specific rows or moments. "No flags" is a valid value. The model name is not.
+
+## Reviewing the trail
+
+Read top to bottom, follow the evidence pointers, spot-check. GitHub renders a committed TSV as a table. `column -s$'\t' -t decisions.tsv` renders it in a terminal.
+
+## Composing this skill
+
+Other skills route their audit trail here instead of inventing one. Reference it by name and let it own the format. Don't restate the columns.
