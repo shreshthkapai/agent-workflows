@@ -1,0 +1,312 @@
+{
+  "schema_version": 1,
+  "name": "agent-workflows",
+  "upstream": {
+    "repository": "https://github.com/poteto/plugins",
+    "commit": "74dd2291e8e37b12fd6dc49b2acbd655c6bdaf12",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 Lauren Tan"
+  },
+  "skills": {
+    "arena": {
+      "category": "workflow",
+      "source": "pstack/skills/arena/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "interrogate": {
+      "category": "workflow",
+      "source": "pstack/skills/interrogate/SKILL.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "tdd": {
+      "category": "workflow",
+      "source": "pstack/skills/tdd/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "figure-it-out": {
+      "category": "workflow",
+      "source": "pstack/skills/figure-it-out/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "show-me-your-work": {
+      "category": "workflow",
+      "source": "pstack/skills/show-me-your-work/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "reflect": {
+      "category": "workflow",
+      "source": "pstack/skills/reflect/SKILL.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "unslop": {
+      "category": "workflow",
+      "source": "pstack/skills/unslop/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "investigation": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/investigation.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "bug-fix": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/bug-fix.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "performance": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/perf-issue.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "runtime-forensics": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/runtime-forensics.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "trace-forensics": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/trace-forensics.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "feature": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/feature.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "refactoring": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/refactoring.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "prototype": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/prototype.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "visual-parity": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/visual-parity.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "autonomous-run": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/autonomous-run.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "multi-phase-plan": {
+      "category": "task",
+      "source": "pstack/skills/poteto-mode/playbooks/multi-phase-plan.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "principle-boundary-discipline": {
+      "category": "principle",
+      "source": "pstack/skills/principle-boundary-discipline/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-build-the-lever": {
+      "category": "principle",
+      "source": "pstack/skills/principle-build-the-lever/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-encode-lessons-in-structure": {
+      "category": "principle",
+      "source": "pstack/skills/principle-encode-lessons-in-structure/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-exhaust-the-design-space": {
+      "category": "principle",
+      "source": "pstack/skills/principle-exhaust-the-design-space/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-experience-first": {
+      "category": "principle",
+      "source": "pstack/skills/principle-experience-first/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-fix-root-causes": {
+      "category": "principle",
+      "source": "pstack/skills/principle-fix-root-causes/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-foundational-thinking": {
+      "category": "principle",
+      "source": "pstack/skills/principle-foundational-thinking/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-guard-the-context-window": {
+      "category": "principle",
+      "source": "pstack/skills/principle-guard-the-context-window/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-laziness-protocol": {
+      "category": "principle",
+      "source": "pstack/skills/principle-laziness-protocol/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-make-operations-idempotent": {
+      "category": "principle",
+      "source": "pstack/skills/principle-make-operations-idempotent/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-migrate-callers-then-delete-legacy-apis": {
+      "category": "principle",
+      "source": "pstack/skills/principle-migrate-callers-then-delete-legacy-apis/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-minimize-reader-load": {
+      "category": "principle",
+      "source": "pstack/skills/principle-minimize-reader-load/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-never-block-on-the-human": {
+      "category": "principle",
+      "source": "pstack/skills/principle-never-block-on-the-human/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-outcome-oriented-execution": {
+      "category": "principle",
+      "source": "pstack/skills/principle-outcome-oriented-execution/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-prove-it-works": {
+      "category": "principle",
+      "source": "pstack/skills/principle-prove-it-works/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-redesign-from-first-principles": {
+      "category": "principle",
+      "source": "pstack/skills/principle-redesign-from-first-principles/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-separate-before-serializing-shared-state": {
+      "category": "principle",
+      "source": "pstack/skills/principle-separate-before-serializing-shared-state/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-sequence-verifiable-units": {
+      "category": "principle",
+      "source": "pstack/skills/principle-sequence-verifiable-units/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-subtract-before-you-add": {
+      "category": "principle",
+      "source": "pstack/skills/principle-subtract-before-you-add/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "principle-type-system-discipline": {
+      "category": "principle",
+      "source": "pstack/skills/principle-type-system-discipline/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "auto"
+    },
+    "how": {
+      "category": "optional",
+      "source": "pstack/skills/how/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "manual"
+    },
+    "why": {
+      "category": "optional",
+      "source": "pstack/skills/why/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "manual"
+    },
+    "architect": {
+      "category": "optional",
+      "source": "pstack/skills/architect/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "manual"
+    },
+    "automate-me": {
+      "category": "optional",
+      "source": "pstack/skills/automate-me/SKILL.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "setup-pstack": {
+      "category": "optional",
+      "source": "pstack/skills/setup-pstack/SKILL.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "typescript-best-practices": {
+      "category": "optional",
+      "source": "pstack/skills/typescript-best-practices/SKILL.md",
+      "auto_supported": true,
+      "personal_default": "manual"
+    },
+    "poteto-mode": {
+      "category": "optional",
+      "source": "pstack/skills/poteto-mode/SKILL.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "authoring-a-skill": {
+      "category": "optional",
+      "source": "pstack/skills/poteto-mode/playbooks/authoring-a-skill.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "eval": {
+      "category": "optional",
+      "source": "pstack/skills/poteto-mode/playbooks/eval.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "session-pickup": {
+      "category": "optional",
+      "source": "pstack/skills/poteto-mode/playbooks/session-pickup.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "pause-safely": {
+      "category": "optional",
+      "source": "pstack/skills/poteto-mode/playbooks/pause-safely.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    },
+    "opening-a-pr": {
+      "category": "optional",
+      "source": "pstack/skills/poteto-mode/playbooks/opening-a-pr.md",
+      "auto_supported": false,
+      "personal_default": "manual"
+    }
+  }
+}

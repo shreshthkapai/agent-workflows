@@ -1,0 +1,24 @@
+# Workflow data, not native Codex or Claude Code configuration.
+# Inherit keeps native settings unchanged; configure supported roles deliberately.
+
+[models.native]
+model = "inherit"
+reasoning_effort = "inherit"
+
+[roles]
+arena_runner = "native"
+arena_judge = "native"
+interrogate_reviewers = ["native", "native", "native"]
+reflect_judgment = "native"
+reflect_tooling = "native"
+reflect_divergent = "native"
+audit_reviewer = "native"
+how_explorer = "native"
+how_explainer = "native"
+how_critics = ["native", "native"]
+why_investigator = "native"
+why_synthesizer = "native"
+architect_runner = "native"
+architect_judge = "native"
+eval_runner = "native"
+eval_judge = "native"
