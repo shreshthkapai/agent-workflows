@@ -1,0 +1,503 @@
+#!/usr/bin/env python3
+"""Install and configure agent-workflows for Claude Code, Codex, and Grok.
+
+  aw install [--runtime NAME] [--skills a,b] [--dry-run] [--force]   install or update every CLI found
+  aw uninstall [--runtime NAME]
+  aw skills                                    list each skill's invocation
+  aw skills auto|manual|default NAME [NAME...]  change it in every installed CLI
+  aw models                                    show each role's model, effort, and speed
+  aw models set ROLE ENTRY [ENTRY...]          change a role, e.g. `aw models set bug_fix opus:high`
+  aw limits                                    show plan usage limits
+"""
+
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("agent-workflows needs Python 3.11 or newer")
+
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import tomllib
+import urllib.error
+import urllib.request
+
+PACKAGE = Path(__file__).resolve().parent.parent
+SKILLS = PACKAGE / "skills"
+AGENTS = PACKAGE / "agents"
+HOME = Path.home()
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "agent-workflows"
+REGISTRY = Path(os.environ.get("AW_MODELS", CONFIG / "models.toml"))
+CHOICES = CONFIG / "skills.toml"
+INSTALLS = CONFIG / "installs.toml"
+BIN = HOME / ".local" / "bin"
+CODEX_KEYS = {"name", "description", "license", "allowed-tools", "metadata"}
+# Grok reads Claude's skill and agent formats, so only the home and the global instructions file differ.
+RUNTIMES = {
+    "claude": {"binary": "claude", "root": HOME / ".claude", "host": "CLAUDE.md", "format": "claude"},
+    "codex": {"binary": "codex", "root": Path(os.environ.get("CODEX_HOME", HOME / ".codex")), "host": "AGENTS.md",
+              "format": "codex"},
+    "grok": {"binary": "grok", "root": Path(os.environ.get("GROK_HOME", HOME / ".grok")), "host": "AGENTS.md",
+             "format": "claude"},
+}
+DEFAULTS = tomllib.loads((PACKAGE / "config" / "invocation.toml").read_text())
+BEGIN, END = "<!-- agent-workflows:begin -->", "<!-- agent-workflows:end -->"
+MANUAL = re.compile(r"^disable-model-invocation:\s*(true|false)\s*\n", re.M)
+LEGACY_BINS = ["aw-limits"]
+
+
+def load(path, default):
+    return tomllib.loads(path.read_text()) if path.is_file() else default
+
+
+def toml_list(values):
+    return "[" + ", ".join(json.dumps(value) for value in values) + "]"
+
+
+# Skills
+
+
+def frontmatter(text):
+    if not text.startswith("---\n") or "\n---" not in text[4:]:
+        raise ValueError("missing YAML frontmatter")
+    end = text.index("\n---", 4) + 1
+    return text[4:end], text[end:]
+
+
+def available():
+    return sorted(path.name for path in SKILLS.iterdir() if (path / "SKILL.md").is_file())
+
+
+def package_mode(name):
+    if name in DEFAULTS["always"]:
+        return "always"
+    match = MANUAL.search(frontmatter((SKILLS / name / "SKILL.md").read_text())[0])
+    upstream_manual = bool(match) and match.group(1) == "true"
+    return "auto" if name in DEFAULTS["auto"] or not upstream_manual else "manual"
+
+
+def modes():
+    """Package defaults with the user's overrides from skills.toml on top. `always` cannot be overridden."""
+    choices = load(CHOICES, {})
+    result = {}
+    for name in available():
+        result[name] = package_mode(name)
+        if result[name] != "always":
+            for mode in ("auto", "manual"):
+                if name in choices.get(mode, []):
+                    result[name] = mode
+    return result
+
+
+def render_skill(text, runtime, manual):
+    head, body = frontmatter(text)
+    head = MANUAL.sub("", head)
+    if RUNTIMES[runtime]["format"] == "claude" and manual:
+        head += "disable-model-invocation: true\n"
+    if RUNTIMES[runtime]["format"] == "codex":  # Codex's validator rejects keys outside its own set.
+        head = "".join(line for line in head.splitlines(keepends=True)
+                       if line.split(":", 1)[0] in CODEX_KEYS or line.startswith((" ", "\t")))
+    return "---\n" + head + body
+
+
+def render_agent(text, runtime):
+    if RUNTIMES[runtime]["format"] == "claude":
+        return text
+    head, body = frontmatter(text)
+    fields = dict(re.findall(r"^(name|description):\s*(.+)$", head, re.M))
+    body = body.split("---", 1)[1].strip() + "\n"
+    return (f"name = {json.dumps(fields['name'])}\n"
+            f"description = {json.dumps(fields['description'])}\n"
+            f"developer_instructions = {json.dumps(body)}\n")
+
+
+def instructions_block(runtime, skill):
+    if runtime == "claude":
+        body = f"Always follow the workflow skill below, from `{skill}`. Its sibling skills live next to it.\n@{skill}"
+    else:
+        body = (f"Always follow the workflow skill at `{skill}`. Read it in full at the start of every session, "
+                "before the first task. Its sibling skills live next to it.")
+    return f"{BEGIN}\n{body}\n{END}\n"
+
+
+def write_block(path, block):
+    text = path.read_text() if path.exists() else ""
+    if BEGIN in text:
+        start, end = text.index(BEGIN), text.index(END) + len(END) + 1
+        text = text[:start] + block + text[end:]
+    else:
+        text += ("\n" if text and not text.endswith("\n\n") else "") + block
+    path.write_text(text)
+
+
+def remove_block(path):
+    if path.exists() and BEGIN in (text := path.read_text()):
+        start, end = text.index(BEGIN), text.index(END) + len(END) + 1
+        path.write_text(text[:start].rstrip("\n") + ("\n" if text[:start].strip() else "") + text[end:])
+
+
+# Install state: which CLIs are installed and every path the installer wrote, so reruns overwrite only their own files.
+
+
+def installs():
+    return load(INSTALLS, {"runtimes": [], "files": []})
+
+
+def save_installs(state):
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    INSTALLS.write_text("# Written by `aw install`. Lists what it installed, so updates and uninstall touch only these.\n"
+                        f"runtimes = {toml_list(sorted(state['runtimes']))}\n"
+                        "files = [\n" + "".join(f"  {json.dumps(path)},\n" for path in sorted(set(state["files"]))) + "]\n")
+
+
+def plan(runtime, names):
+    spec = RUNTIMES[runtime]
+    root = spec["root"]
+    mode = modes()
+    files = {}
+    for name in names:
+        files[root / "skills" / name] = ("skill", name, mode[name] != "auto")
+    suffix = ".md" if spec["format"] == "claude" else ".toml"
+    for agent in sorted(AGENTS.glob("*.md")):
+        files[root / "agents" / (agent.stem + suffix)] = ("agent", agent, None)
+    if "workflow" in names:
+        files[root / spec["host"]] = ("instructions", instructions_block(runtime, root / "skills" / "workflow" / "SKILL.md"), None)
+    return files
+
+
+def write(path, kind, source, manual, runtime):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "skill":
+        with tempfile.TemporaryDirectory(prefix=".pstack-", dir=path.parent) as temporary:
+            staged = Path(temporary) / source
+            shutil.copytree(SKILLS / source, staged)
+            skill = staged / "SKILL.md"
+            skill.write_text(render_skill(skill.read_text(), runtime, manual))
+            if RUNTIMES[runtime]["format"] == "codex":
+                (staged / "agents").mkdir(exist_ok=True)
+                policy = "false" if manual else "true"
+                (staged / "agents" / "openai.yaml").write_text(f"policy:\n  allow_implicit_invocation: {policy}\n")
+            if path.exists():
+                shutil.rmtree(path)
+            staged.rename(path)
+    elif kind == "agent":
+        path.write_text(render_agent(source.read_text(), runtime))
+    elif kind == "instructions":
+        write_block(path, source)
+
+
+def bins():
+    """`aw` links back to this checkout so it can reinstall from it. `aw-run` is a standalone copy."""
+    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run")}
+
+
+def conflicts(paths, owned, force):
+    if force:
+        return []
+    found = []
+    for path in paths:
+        if (path.exists() or path.is_symlink()) and str(path) not in owned:
+            if path.is_symlink() and path.resolve() == (PACKAGE / "bin" / path.name).resolve():
+                continue
+            found.append(str(path))
+    return found
+
+
+def command_install(args):
+    state = installs()
+    runtimes = [args.runtime] if args.runtime else [name for name, spec in RUNTIMES.items() if shutil.which(spec["binary"])]
+    if not runtimes:
+        sys.exit("aw: none of claude, codex, or grok is on PATH. Install one, or pass --runtime.")
+    names = available() if args.skills == "all" else [name.strip() for name in args.skills.split(",") if name.strip()]
+    unknown = sorted(set(names) - set(available()))
+    if unknown:
+        sys.exit("aw: unknown skills: " + ", ".join(unknown))
+    files = {path: (runtime, *entry) for runtime in runtimes for path, entry in plan(runtime, names).items()}
+    clash = conflicts([path for path, (_, kind, *_) in files.items() if kind != "instructions"] + list(bins()),
+                      set(state["files"]), args.force)
+    if clash:
+        more = f"\n  ...and {len(clash) - 8} more" if len(clash) > 8 else ""
+        sys.exit(f"aw: {len(clash)} paths exist that aw did not install. Pass --force to replace them:\n  "
+                 + "\n  ".join(clash[:8]) + more)
+    if args.dry_run:
+        for path, (runtime, kind, _, manual) in files.items():
+            note = ("manual" if manual else "auto") if kind == "skill" else kind
+            print(f"{runtime:6} write {path} ({note})")
+        for path, (how, source) in bins().items():
+            print(f"{'':6} {how}  {path} -> {source}" if how == "link" else f"{'':6} write {path}")
+        return
+    for path, (runtime, kind, source, manual) in files.items():
+        write(path, kind, source, manual, runtime)
+        if kind != "instructions":
+            state["files"].append(str(path))
+    BIN.mkdir(parents=True, exist_ok=True)
+    for path, (how, source) in bins().items():
+        if path.exists() or path.is_symlink():
+            path.unlink()
+        if how == "link":
+            path.symlink_to(source)
+        else:
+            shutil.copyfile(source, path)
+            path.chmod(0o755)
+        state["files"].append(str(path))
+    for name in LEGACY_BINS:
+        if str(BIN / name) in state["files"] or (BIN / name).is_file():
+            (BIN / name).unlink(missing_ok=True)
+            state["files"] = [path for path in state["files"] if path != str(BIN / name)]
+    if not REGISTRY.exists():  # Never overwrite the user's model choices.
+        CONFIG.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PACKAGE / "config" / "models.toml", REGISTRY)
+    state["runtimes"] = sorted(set(state["runtimes"]) | set(runtimes))
+    save_installs(state)
+    counts = {mode: sum(1 for name in names if modes()[name] == mode) for mode in ("always", "auto", "manual")}
+    print(f"Installed {len(names)} skills ({counts['always']} always on, {counts['auto']} auto, {counts['manual']} manual) "
+          f"for {', '.join(runtimes)}.")
+    print(f"Models: {REGISTRY}. Change them with `aw models set`, or skills with `aw skills auto|manual NAME`.")
+    if str(BIN) not in os.environ.get("PATH", "").split(os.pathsep):
+        print(f"Add {BIN} to PATH so the skills can run `aw` and `aw-run`.")
+
+
+def command_uninstall(args):
+    state = installs()
+    runtimes = [args.runtime] if args.runtime else state["runtimes"]
+    for runtime in runtimes:
+        root = RUNTIMES[runtime]["root"]
+        remove_block(root / RUNTIMES[runtime]["host"])
+        for path in [Path(path) for path in state["files"] if Path(path).is_relative_to(root)]:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+            state["files"].remove(str(path))
+    state["runtimes"] = [runtime for runtime in state["runtimes"] if runtime not in runtimes]
+    if not state["runtimes"]:
+        for path in bins():
+            path.unlink(missing_ok=True)
+        INSTALLS.unlink(missing_ok=True)
+    else:
+        save_installs(state)
+    print(f"Removed agent-workflows from {', '.join(runtimes) or 'nothing'}. Your models.toml and skills.toml stay.")
+
+
+def command_skills(args):
+    if not args.mode:
+        current = modes()
+        for mode in ("always", "auto", "manual"):
+            names = [name for name, value in current.items() if value == mode]
+            print(f"{mode} ({len(names)}):")
+            for name in names:
+                changed = " (changed)" if mode != package_mode(name) else ""
+                print(f"  {name}{changed}")
+        print("\nChange with `aw skills auto|manual NAME`, or `aw skills default NAME` to undo.")
+        return
+    unknown = sorted(set(args.names) - set(available()))
+    if unknown:
+        sys.exit("aw: unknown skills: " + ", ".join(unknown))
+    pinned = [name for name in args.names if package_mode(name) == "always"]
+    if pinned:
+        sys.exit(f"aw: {', '.join(pinned)} is always on and cannot change")
+    choices = load(CHOICES, {})
+    lists = {mode: [name for name in choices.get(mode, []) if name not in args.names] for mode in ("auto", "manual")}
+    if args.mode != "default":
+        lists[args.mode] += [name for name in args.names if package_mode(name) != args.mode]
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    CHOICES.write_text("# Your skill invocation overrides. Change with `aw skills auto|manual|default NAME`.\n"
+                       f"auto = {toml_list(sorted(lists['auto']))}\n"
+                       f"manual = {toml_list(sorted(lists['manual']))}\n")
+    state = installs()
+    for runtime in state["runtimes"]:
+        installed = [name for name in args.names if str(RUNTIMES[runtime]["root"] / "skills" / name) in state["files"]]
+        for path, (kind, source, manual) in plan(runtime, installed).items():
+            if kind == "skill":
+                write(path, kind, source, manual, runtime)
+    current = modes()
+    print("\n".join(f"{name}: {current[name]}" for name in args.names))
+    if state["runtimes"]:
+        print(f"Applied to {', '.join(state['runtimes'])}. New sessions pick it up.")
+
+
+# Models
+
+
+def resolve(role, registry_path=None):
+    env = {**os.environ, "AW_MODELS": str(registry_path or REGISTRY)}
+    result = subprocess.run([sys.executable, str(PACKAGE / "bin" / "aw-run"), "--resolve", role],
+                            capture_output=True, text=True, env=env)
+    if result.returncode:
+        return None, result.stderr.strip()
+    seats = json.loads(result.stdout)
+    return (seats if isinstance(seats, list) else [seats]), None
+
+
+def command_models(args):
+    if not REGISTRY.is_file():
+        sys.exit(f"aw: no model registry at {REGISTRY}; run `aw install`")
+    text = REGISTRY.read_text()
+    roles = tomllib.loads(text).get("roles", {})
+    if args.action == "set":
+        known = tomllib.loads((PACKAGE / "config" / "models.toml").read_text())["roles"]
+        if args.role not in known:
+            sys.exit(f"aw: unknown role {args.role!r}; roles: {', '.join(known)}")
+        value = json.dumps(args.entries[0]) if len(args.entries) == 1 else toml_list(args.entries)
+        line = f"{args.role} = {value}"
+        pattern = re.compile(rf"^{re.escape(args.role)}\s*=.*$", re.M)
+        updated = pattern.sub(line, text, count=1) if pattern.search(text) else text.rstrip("\n") + f"\n{line}\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as draft:
+            draft.write(updated)
+        seats, error = resolve(args.role, draft.name)
+        os.unlink(draft.name)
+        if error:
+            sys.exit(error)
+        REGISTRY.write_text(updated)
+        roles = {args.role: None}
+    width = max(map(len, roles), default=0)
+    for role in roles:
+        seats, error = resolve(role)
+        if error:
+            print(f"{role:{width}}  {error}")
+            continue
+        described = []
+        for seat in seats:
+            if seat["provider"] == "inherit":
+                described.append("main agent's model")
+                continue
+            note = f" (for {seat['substituted_for']})" if seat.get("substituted_for") else ""
+            speed = " fast" if seat.get("speed") == "fast" else ""
+            described.append(f"{seat['model']} @ {seat['effort']}{speed} [{seat['provider']}]{note}")
+        print(f"{role:{width}}  {', '.join(described)}")
+    if args.action != "set":
+        print(f"\nChange a role with `aw models set ROLE model[:effort][:fast]`. Models are defined in {REGISTRY}.")
+
+
+# Limits
+
+CLAUDE_CREDENTIALS = Path(os.environ.get("CLAUDE_CONFIG_DIR", HOME / ".claude")) / ".credentials.json"
+CLAUDE_USAGE = "https://api.anthropic.com/api/oauth/usage"
+CLAUDE_LABELS = {"session": "5-hour", "weekly_all": "weekly"}
+
+
+def window(minutes):
+    if minutes % 10080 == 0:
+        return "weekly" if minutes == 10080 else f"{minutes // 10080}-week"
+    if minutes % 1440 == 0:
+        return f"{minutes // 1440}-day"
+    return f"{minutes // 60}-hour" if minutes % 60 == 0 else f"{minutes}-minute"
+
+
+def claude_limits():
+    if not CLAUDE_CREDENTIALS.is_file():
+        return "not logged in (run `claude` once)"
+    oauth = json.loads(CLAUDE_CREDENTIALS.read_text()).get("claudeAiOauth", {})
+    request = urllib.request.Request(CLAUDE_USAGE, headers={
+        "Authorization": f"Bearer {oauth.get('accessToken', '')}", "anthropic-beta": "oauth-2025-04-20"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            limits = json.load(response).get("limits", [])
+    except urllib.error.HTTPError as error:
+        return "login expired (open `claude` once to refresh it)" if error.code == 401 else f"HTTP {error.code}"
+    except urllib.error.URLError as error:
+        return f"unreachable ({error.reason})"
+    rows = []
+    for limit in limits:
+        model = ((limit.get("scope") or {}).get("model") or {}).get("display_name")
+        label = f"weekly {model}" if model else CLAUDE_LABELS.get(limit["kind"], limit["kind"].replace("_", " "))
+        rows.append((label, limit["percent"], datetime.fromisoformat(limit["resets_at"])))
+    return rows
+
+
+def codex_limits():
+    process = subprocess.Popen(["codex", "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True)
+    timer = threading.Timer(20, process.kill)
+    timer.start()
+    try:
+        for message in ({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aw", "version": "1"}}},
+                        {"method": "initialized"}, {"id": 2, "method": "account/rateLimits/read"}):
+            process.stdin.write(json.dumps({"jsonrpc": "2.0", **message}) + "\n")
+        process.stdin.flush()
+        for line in process.stdout:
+            message = json.loads(line)
+            if message.get("id") == 2:
+                break
+        else:
+            return "no answer from `codex app-server`"
+    finally:
+        timer.cancel()
+        process.kill()
+    if "error" in message:
+        return message["error"].get("message", "error")
+    limits = message["result"]["rateLimits"]
+    return [(window(limit["windowDurationMins"]), limit["usedPercent"], datetime.fromtimestamp(limit["resetsAt"], timezone.utc))
+            for limit in (limits.get("primary"), limits.get("secondary")) if limit]
+
+
+def grok_limits():
+    # Grok shows the account allowance only in its interactive `/usage` screen.
+    return "no command-line view of plan limits; run /usage inside Grok"
+
+
+def until(moment):
+    minutes = max(int((moment - datetime.now(timezone.utc)).total_seconds() // 60), 0)
+    days, minutes = divmod(minutes, 1440)
+    hours, minutes = divmod(minutes, 60)
+    return f"{days}d {hours}h" if days else f"{hours}h {minutes}m"
+
+
+def command_limits(args):
+    shown = False
+    for name, binary, read in (("Claude", "claude", claude_limits), ("Codex", "codex", codex_limits),
+                               ("Grok", "grok", grok_limits)):
+        if not shutil.which(binary):
+            continue
+        shown = True
+        rows = read()
+        if isinstance(rows, str):
+            print(f"{name:7} {rows}")
+            continue
+        for label, percent, resets in rows:
+            bar = "#" * round(percent / 5) + "." * (20 - round(percent / 5))
+            local = resets.astimezone().strftime("%a %H:%M")
+            print(f"{name:7} {label:14} {bar} {percent:>3.0f}%  resets {local} (in {until(resets)})")
+    if not shown:
+        print("None of claude, codex, or grok is on PATH.")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="aw", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    commands = parser.add_subparsers(dest="command", required=True)
+    install = commands.add_parser("install", help="install or update every CLI found")
+    install.add_argument("--runtime", choices=list(RUNTIMES), help="only this CLI")
+    install.add_argument("--skills", default="all", help="comma-separated skill names (default: all)")
+    install.add_argument("--dry-run", action="store_true", help="print the plan without writing")
+    install.add_argument("--force", action="store_true", help="replace files aw did not install")
+    install.set_defaults(run=command_install)
+    uninstall = commands.add_parser("uninstall", help="remove what aw installed")
+    uninstall.add_argument("--runtime", choices=list(RUNTIMES), help="only this CLI")
+    uninstall.set_defaults(run=command_uninstall)
+    skills = commands.add_parser("skills", help="list or change skill invocation")
+    skills.add_argument("mode", nargs="?", choices=["auto", "manual", "default"])
+    skills.add_argument("names", nargs="*")
+    skills.set_defaults(run=command_skills)
+    models = commands.add_parser("models", help="show or change role models")
+    models.add_argument("action", nargs="?", choices=["set"])
+    models.add_argument("role", nargs="?")
+    models.add_argument("entries", nargs="*")
+    models.set_defaults(run=command_models)
+    commands.add_parser("limits", help="show plan usage limits").set_defaults(run=command_limits)
+    args = parser.parse_args()
+    if args.command == "skills" and bool(args.mode) != bool(args.names):
+        parser.error("use `aw skills`, or `aw skills auto|manual|default NAME...`")
+    if args.command == "models" and args.action and not (args.role and args.entries):
+        parser.error("use `aw models set ROLE ENTRY [ENTRY...]`")
+    args.run(args)
+
+
+if __name__ == "__main__":
+    main()

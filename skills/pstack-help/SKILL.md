@@ -34,21 +34,21 @@ When the model registry is missing or still the default and it matters, ask whet
 
 ## Get set up
 
-1. Install with this package's `install.py`, for Claude Code or Codex.
+1. Install with this package's `install.py`. It installs into every CLI it finds among Claude Code, Codex, and Grok, and puts `aw` on the `PATH`.
 2. Run [`/setup-pstack`](../setup-pstack/SKILL.md). It asks for a reasoning budget, maps a model to each role, and writes the model registry. The registry applies from the next spawn.
 3. Start a real task with a goal and a check that can pass or fail. The installer loads the workflow skill into every session, so no command is needed.
 
-Installing changes nothing until the user invokes a skill. Only `/setup-pstack` loads from the user's words. The [README](https://github.com/cursor/plugins/blob/main/pstack/README.md) and [guide page 1](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/01-setup.md) have the details. Offer to word their first prompt with them, per [`references/prompting.md`](references/prompting.md).
+Installing loads the workflow skill into every session. Auto skills load on their own when a task matches, and manual ones wait for the user or a workflow step. `aw skills` lists which is which, and `aw skills auto|manual NAME` changes one. The [README](https://github.com/cursor/plugins/blob/main/pstack/README.md) and [guide page 1](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/01-setup.md) have the details. Offer to word their first prompt with them, per [`references/prompting.md`](references/prompting.md).
 
-If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models. A role set to `inherit` runs on the session's model, which saves tokens when the session runs on a cheaper model. Each model's `provider` decides which subscription pays, so moving a busy role to the other provider spreads the load. A shorter panel list runs fewer subagents, one for each entry. Ask for a lighter pass when a task doesn't need the full playbook.
+If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models, or change one role with `aw models set ROLE model:effort`. `aw limits` shows how much of each plan is left. A role set to `inherit` runs on the session's model, which saves tokens when the session runs on a cheaper model. Each model's `provider` decides which subscription pays, so moving a busy role to the other provider spreads the load. A shorter panel list runs fewer subagents, one for each entry. Ask for a lighter pass when a task doesn't need the full playbook.
 
-This is pstack ported from Cursor to Claude Code and Codex. The workflow skill and skills such as `/how`, `/why`, and `/teach`, spawn subagents with per-role models, natively in the current CLI or through `aw-run` on the other one. Codex invokes each skill as `$name` instead of `/name`. Custom Modes are a Cursor feature, and `/loop` exists in Claude Code but not in Codex.
+This is pstack ported from Cursor to Claude Code, Codex, and Grok. The workflow skill and skills such as `/how`, `/why`, and `/teach`, spawn subagents with per-role models, natively in the current CLI or through `aw-run` on another one. Codex invokes each skill as `$name` instead of `/name`. Custom Modes are a Cursor feature, and `/loop` exists in Claude Code and Grok but not in Codex.
 
 ## Start a task
 
 The workflow skill matches the task to a playbook, copies the playbook's steps into the todo list, and runs the other skills as the steps need them. A step it skips stays in the list as `skip: <reason>`. A good prompt states the goal and how to tell it's done. It doesn't list skills, because a hand-written sequence tends to drop or reorder steps the playbook would keep. Read [`references/prompting.md`](references/prompting.md) before you help word one. [Guide page 2](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/02-poteto-mode.md) has examples.
 
-The installer imports the workflow skill into the CLI's global instructions (`~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`), so it applies to every session and does not fade. Mid-chat, "new task" makes it match a fresh playbook. It already uses `delegate` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, spawn the `delegate` agent.
+The installer imports the workflow skill into the CLI's global instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md`), so it applies to every session and does not fade. Mid-chat, "new task" makes it match a fresh playbook. It already uses `delegate` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, spawn the `delegate` agent.
 
 ## Pick a skill
 
@@ -100,7 +100,7 @@ Close calls:
 Not in pstack:
 
 - `/deslop`, `control-cli`, and `control-ui` ship in the `cursor-team-kit` plugin.
-- `/loop` is a Claude Code built-in. Codex has none. `skill-creator` comes with the CLI.
+- `/loop` is built into Claude Code and Grok. Codex has none. `skill-creator` comes with the CLI.
 - pstack has no `/orchestrate` skill. Orchestrate is a workflow playbook. If the slash menu shows `/orchestrate`, another plugin provides it.
 
 ## Playbooks and principles
@@ -124,7 +124,7 @@ Principles are one-rule skills that the workflow skill reads and cites in its re
 
 | Symptom | Fix |
 |---|---|
-| The workflow stopped applying | Check that the install's block is still in `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. |
+| The workflow stopped applying | Check that the install's block is still in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md`. |
 | A question got treated as the next step of the last task | Say "new task", or say the turn doesn't need a playbook. |
 | A new model choice had no effect | Check the role with `aw-run --resolve <role>`. A role set to `inherit` follows the session's model. |
 | Runs cost more than expected | See the cost paragraph under Get set up. |

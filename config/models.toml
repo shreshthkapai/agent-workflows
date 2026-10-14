@@ -24,8 +24,8 @@ provider = "grok"
 model = "grok-4.7"
 fallback = ["sol", "opus"]
 
-# One line per role, as in upstream setup-pstack. A value is a model name, a list for
-# panels (one subagent per entry), or "inherit" to run on the parent session's model.
+# One line per role, as in upstream setup-pstack. An entry is model, model:effort, or model:effort:fast
+# (Codex models only). A list is a panel, one subagent per entry. "inherit" runs on the parent session's model.
 [roles]
 feature_refactoring = "sol"
 bug_fix = "sol"

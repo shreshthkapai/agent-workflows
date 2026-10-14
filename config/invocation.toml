@@ -1,7 +1,7 @@
-# Install defaults for install.py. Upstream marks every skill manual; these override that.
-# `--auto` on the command line replaces the auto list for one install.
+# Package defaults for skill invocation. Upstream marks every skill manual; these override that.
+# Users change their own with `aw skills auto|manual NAME`, saved in ~/.config/agent-workflows/skills.toml.
 
-# Imported into every session through the CLI's global instructions (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md).
+# Imported into every session through the CLI's global instructions (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.grok/AGENTS.md).
 always = ["workflow"]
 
 # The model may load these on its own. Every other skill is manual.
@@ -31,4 +31,17 @@ auto = [
   "principle-sequence-verifiable-units",
   "principle-subtract-before-you-add",
   "principle-type-system-discipline",
+  "how",
+  "why",
+  "architect",
+  "interrogate",
+  "swarm",
+  "no-comments",
+  "technical-writing",
+  "benchmark-checklist",
+  "ketchup",
+  "principle-model-the-domain",
+  "principle-attack-the-premise",
+  "principle-explain-the-number",
+  "principle-test-behavior-not-implementation",
 ]

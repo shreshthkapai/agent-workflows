@@ -24,6 +24,11 @@ EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 BUDGETS = {"unlimited": "max", "large": "xhigh", "medium": "high", "small": "medium"}
 LIMIT = re.compile(r"usage limit|rate limit|limit reached|quota|too many requests|\b429\b", re.I)
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-workflows" / "models.toml"
+CODEX_DELEGATE = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "agents" / "delegate.toml"
+# The always-on workflow tells every session to run a playbook, so a child must hear it is the lead's delegate.
+DELEGATE = ("You are the delegate of a lead session in another CLI, which started you through `aw-run` to do the task "
+            "below and return the result. The lead owns the playbook, the todo list, and every subagent spawn. Do the task "
+            "yourself. Do not spawn subagents, open a playbook todo list, or start a playbook.\n\n")
 LOG = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "agent-workflows" / "runs.jsonl"
 
 
@@ -44,7 +49,7 @@ def last_usage(events):
 
 
 def claude_command(choice, read_only, cwd, files):
-    return ["claude", "-p", "--model", choice["model"], "--effort", choice["effort"],
+    return ["claude", "-p", "--agent", "delegate", "--model", choice["model"], "--effort", choice["effort"],
             "--permission-mode", "plan" if read_only else "auto", "--output-format", "json"]
 
 
@@ -55,8 +60,22 @@ def claude_parse(result, files):
 
 
 def codex_command(choice, read_only, cwd, files):
-    return ["codex", "exec", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"',
-            "-s", "read-only" if read_only else "workspace-write", "-C", str(cwd), "--json", "-o", files["message"]]
+    tier = ["-c", 'service_tier="priority"'] if choice["speed"] == "fast" else []
+    return ["codex", "exec", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"', *tier,
+            "-s", "read-only" if read_only else "workspace-write", "-C", str(cwd), "--skip-git-repo-check", "--json",
+            "-o", files["message"]]
+
+
+def delegate_brief(brief):
+    return DELEGATE + brief
+
+
+def codex_brief(brief):
+    # `codex exec` cannot select an agent, and Codex labels every session `/root`.
+    if not CODEX_DELEGATE.is_file():
+        sys.exit(f"aw-run: no delegate agent at {CODEX_DELEGATE}; run `aw install --runtime codex`")
+    instructions = tomllib.loads(CODEX_DELEGATE.read_text())["developer_instructions"]
+    return DELEGATE.replace("You are", "Codex labels every session `/root`, but you are", 1) + instructions + "\n---\n\n" + brief
 
 
 def codex_parse(result, files):
@@ -65,7 +84,7 @@ def codex_parse(result, files):
 
 def grok_command(choice, read_only, cwd, files):
     # Grok's headless mode does not read stdin, so the brief goes through --prompt-file.
-    return ["grok", "--prompt-file", files["prompt"], "-m", choice["model"], "--effort", choice["effort"],
+    return ["grok", "--prompt-file", files["prompt"], "--agent", "delegate", "-m", choice["model"], "--effort", choice["effort"],
             "--sandbox", "read-only" if read_only else "workspace",
             "--permission-mode", "dontAsk" if read_only else "auto",
             "--cwd", str(cwd), "--output-format", "json"]
@@ -79,9 +98,10 @@ def grok_parse(result, files):
 
 
 PROVIDERS = {
-    "claude": {"binary": "claude", "command": claude_command, "parse": claude_parse, "stdin": True},
-    "codex": {"binary": "codex", "command": codex_command, "parse": codex_parse, "stdin": True},
-    "grok": {"binary": "grok", "command": grok_command, "parse": grok_parse, "stdin": False},
+    "claude": {"binary": "claude", "command": claude_command, "parse": claude_parse, "stdin": True, "brief": delegate_brief},
+    "codex": {"binary": "codex", "command": codex_command, "parse": codex_parse, "stdin": True, "brief": codex_brief,
+              "fast": True},
+    "grok": {"binary": "grok", "command": grok_command, "parse": grok_parse, "stdin": False, "brief": delegate_brief},
 }
 
 
@@ -117,14 +137,28 @@ def chain(registry, name):
     return order
 
 
+def parse_seat(registry, role, value):
+    """A role entry is `model`, `model:effort`, or `model:effort:fast`; effort defaults to the budget's."""
+    name, *rest = value.split(":")
+    effort = rest[0] if rest else BUDGETS[registry.get("budget", "large")]
+    speed = rest[1] if len(rest) > 1 else "standard"
+    if effort not in EFFORTS or speed not in ("standard", "fast") or len(rest) > 2:
+        sys.exit(f"aw-run: role {role!r} entry {value!r} must be model[:{'|'.join(EFFORTS)}][:fast]")
+    if name != "inherit" and name not in registry.get("models", {}):
+        sys.exit(f"aw-run: role {role!r} names unknown model {name!r}")
+    if speed == "fast" and name != "inherit" and not PROVIDERS[registry["models"][name]["provider"]].get("fast"):
+        sys.exit(f"aw-run: role {role!r} entry {value!r}: only Codex models have a fast tier")
+    return name, effort, speed
+
+
 def resolve(registry, role, shift):
     if role not in registry.get("roles", {}):
         sys.exit(f"aw-run: unknown role {role!r}; roles: {', '.join(registry.get('roles', {}))}")
     value = registry["roles"][role]
-    base = EFFORTS.index(BUDGETS[registry.get("budget", "large")])
-    effort = EFFORTS[min(max(base + shift, 0), len(EFFORTS) - 1)]
     seats = []
-    for name in value if isinstance(value, list) else [value]:
+    for entry in value if isinstance(value, list) else [value]:
+        name, effort, speed = parse_seat(registry, role, entry)
+        effort = EFFORTS[min(max(EFFORTS.index(effort) + shift, 0), len(EFFORTS) - 1)]
         if name == "inherit":
             seats.append({"name": "inherit", "provider": "inherit", "model": None, "effort": None})
             continue
@@ -133,7 +167,7 @@ def resolve(registry, role, shift):
             sys.exit(f"aw-run: no installed CLI for model {name!r} or its fallbacks")
         entry = registry["models"][available[0]]
         seat = {"name": available[0], "provider": entry["provider"], "model": entry["model"], "effort": effort,
-                "fallbacks": available[1:]}
+                "speed": speed if PROVIDERS[entry["provider"]].get("fast") else "standard", "fallbacks": available[1:]}
         if available[0] != name:
             seat["substituted_for"] = name
         seats.append(seat)
@@ -142,6 +176,7 @@ def resolve(registry, role, shift):
 
 def run(choice, brief, read_only, cwd):
     provider = PROVIDERS[choice["provider"]]
+    brief = provider["brief"](brief)
     with tempfile.TemporaryDirectory(prefix="aw-run-") as scratch:
         files = {"message": str(Path(scratch) / "message.md"), "prompt": str(Path(scratch) / "prompt.md")}
         Path(files["message"]).touch()
@@ -190,7 +225,9 @@ def main():
     attempts = [seat["name"]] + ([] if args.no_fallback else seat["fallbacks"])
     for attempt, name in enumerate(attempts):
         entry = registry["models"][name]
-        choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"]}
+        fast = seat["speed"] == "fast" and PROVIDERS[entry["provider"]].get("fast")
+        choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"],
+                  "speed": "fast" if fast else "standard"}
         text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
         log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index, "model_name": name,
              **choice, "read_only": args.read_only, "limited": limited,

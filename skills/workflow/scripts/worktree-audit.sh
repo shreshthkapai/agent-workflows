@@ -62,10 +62,10 @@ fi
 [ -s "$prs" ] || echo "[]" > "$prs"
 
 # Transcript dirs: Claude Code keeps ~/.claude/projects/<slugified-repo-path>/,
-# Codex keeps ~/.codex/sessions/ for every project (matched by worktree path below).
+# Codex keeps ~/.codex/sessions/ and Grok ~/.grok/sessions/ for every project (matched by worktree path below).
 slug=$(printf '%s' "$main_wt" | sed 's#[^A-Za-z0-9]#-#g')
 transcripts=""
-for d in "$HOME/.claude/projects/$slug" "$HOME/.codex/sessions"; do
+for d in "$HOME/.claude/projects/$slug" "$HOME/.codex/sessions" "$HOME/.grok/sessions"; do
 	[ -d "$d" ] && transcripts="$transcripts $d"
 done
 now=$(date +%s)

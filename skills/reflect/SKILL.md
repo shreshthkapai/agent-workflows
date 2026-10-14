@@ -12,11 +12,12 @@ Invoke when the user says "reflect" or "/reflect". Skip when the conversation is
 
 ## 1. Locate the active transcript
 
-Before fanning out, find this conversation's transcript. In Claude Code it lives in `~/.claude/projects/<slug>/`, where `<slug>` is the working directory with every `/` replaced by `-`. Do not glob across `~/.claude/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects. Codex keeps every project's sessions under `~/.codex/sessions/YYYY/MM/DD/`, so check that the first line's `payload.cwd` is the working directory before reading further.
+Before fanning out, find this conversation's transcript. In Claude Code it lives in `~/.claude/projects/<slug>/`, where `<slug>` is the working directory with every `/` replaced by `-`. Do not glob across `~/.claude/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects. Codex keeps every project's sessions under `~/.codex/sessions/YYYY/MM/DD/`, so check that the first line's `payload.cwd` is the working directory before reading further. Grok keeps `~/.grok/sessions/<encoded-cwd>/<session-id>/chat_history.jsonl`, one directory per workspace, and `grok sessions list` names this workspace's sessions.
 
 ```bash
 ls -t ~/.claude/projects/<slug>/*.jsonl ~/.claude/projects/<slug>/*/subagents/*.jsonl 2>/dev/null | head -10  # Claude Code
 ls -t ~/.codex/sessions/*/*/*/*.jsonl 2>/dev/null | head -10  # Codex
+grok sessions list  # Grok
 ```
 
 That covers the Claude Code session (`<id>.jsonl`) and subagent (`<id>/subagents/<child>.jsonl`) layouts, and Codex's dated rollout files. For each candidate, `grep -l` a distinctive phrase from the conversation's opening user prompt. Take the file that contains it. If none matches, pass a tight digest of the session instead.

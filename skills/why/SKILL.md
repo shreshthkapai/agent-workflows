@@ -46,7 +46,7 @@ Map each available MCP to one evidence category:
 
 Source control is always available through git and `gh`. For the other six, classify using the MCP name, server instructions, tool names, and resource descriptors. If an MCP could fit more than one category, choose the one matching its primary evidence. Record ambiguous cases in the coverage map.
 
-Spawn one investigator per category that has a matching MCP, all in a single message so they run concurrently, each owning exactly one tool or MCP. Don't ask one agent to cover multiple MCPs. Model: the `why_investigators` role. Claude Code and Codex configure MCPs separately, so run each investigator on a CLI that has its MCP (`claude mcp list`, `codex mcp list`), on the parent model when the role's provider lacks it, and say so.
+Spawn one investigator per category that has a matching MCP, all in a single message so they run concurrently, each owning exactly one tool or MCP. Don't ask one agent to cover multiple MCPs. Model: the `why_investigators` role. Claude Code, Codex, and Grok configure MCPs separately, so run each investigator on a CLI that has its MCP (`claude mcp list`, `codex mcp list`, `grok mcp list`), on the parent model when the role's provider lacks it, and say so.
 
 Each investigator's prompt is `references/investigator-prompt.md` filled in, plus:
 - the category playbook `references/sources/<source>.md` for the selected MCP, adapted from the examples in `references/source-playbook.md`
