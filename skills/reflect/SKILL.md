@@ -25,7 +25,7 @@ That covers the Claude Code session (`<id>.jsonl`) and subagent (`<id>/subagents
 
 Spawn three general-purpose subagents at once, not read-only. Reviewers need MCP access to look up the tickets, chat threads, and observability traces the transcript references, and read-only modes can block MCP tools.
 
-Each reviewer and the synthesizer name a role in `~/.config/agent-workflows/models.toml`. Resolve its model with `aw-run --resolve <role>` and spawn per the Subagents section of the **poteto-mode** skill. A role of `inherit` runs on the parent model. If the spawn or `aw-run` rejects the model, use the model's `fallback` and say so. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+Each reviewer and the synthesizer name a role in `~/.config/agent-workflows/models.toml`. Resolve its model with `aw-run --resolve <role>` and spawn per the Subagents section of the **workflow** skill. A role of `inherit` runs on the parent model. If the spawn or `aw-run` rejects the model, use the model's `fallback` and say so. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **workflow** skill.
 
 | Lens | Role | Prompt template |
 |---|---|---|

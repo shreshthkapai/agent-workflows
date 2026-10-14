@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Explore the codebase to answer "how does X work?" questions. Produce architectural explanations at the level of a senior engineer onboarding onto a subsystem, enough to build a working mental model, not so much that it reads like annotated source code.
 
-Every spawn is a general-purpose, read-only subagent. Explorers use the `how_explorer` role and every explainer uses the `how_explainer` role, each resolved with `aw-run --resolve <role>` from `~/.config/agent-workflows/models.toml`. Spawn on the resolved model, per the Subagents section of the **poteto-mode** skill. An `inherit` role runs on the parent model. If the spawn or `aw-run` rejects the model, run that seat on its model's `fallback` and say so. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+Every spawn is a general-purpose, read-only subagent. Explorers use the `how_explorer` role and every explainer uses the `how_explainer` role, each resolved with `aw-run --resolve <role>` from `~/.config/agent-workflows/models.toml`. Spawn on the resolved model, per the Subagents section of the **workflow** skill. An `inherit` role runs on the parent model. If the spawn or `aw-run` rejects the model, run that seat on its model's `fallback` and say so. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **workflow** skill.
 
 ## 1. Assess complexity
 

@@ -14,12 +14,12 @@ Every candidate gets the same prompt, so the prompt is the contract.
 
 1. State the artifact each candidate is producing.
 2. Derive the rubric, 3-6 concrete gradeable criteria for what success looks like on *this* task. It is the picker's tool in Phase D. Candidates only see the task.
-3. Pick the runners. Use the `arena_runners` role in `~/.config/agent-workflows/models.toml`, resolved with `aw-run --resolve arena_runners`, one runner per entry. An `inherit` entry in this role or the cross-judge role means the parent model. Families are providers, `claude` and `codex`. If the spawn or `aw-run` rejects a seat's model or its provider is unavailable, run that seat on its model's `fallback` and say so. Spawn more runners when the arena covers multiple design directions. Use the same model N times when the work is generation-bound rather than judgment-sensitive. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+3. Pick the runners. Use the `arena_runners` role in `~/.config/agent-workflows/models.toml`, resolved with `aw-run --resolve arena_runners`, one runner per entry. An `inherit` entry in this role or the cross-judge role means the parent model. Families are providers, `claude` and `codex`. If the spawn or `aw-run` rejects a seat's model or its provider is unavailable, run that seat on its model's `fallback` and say so. Spawn more runners when the arena covers multiple design directions. Use the same model N times when the work is generation-bound rather than judgment-sensitive. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **workflow** skill.
 4. Give each candidate its own output location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`), per the **separate-before-serializing-shared-state** principle skill.
 
 ## Phase B: Fan out
 
-Spawn all N subagents in one message, in the background, per the Subagents section of the **poteto-mode** skill, each with the task, the path to the shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming the alternatives it considered and what it rejected.
+Spawn all N subagents in one message, in the background, per the Subagents section of the **workflow** skill, each with the task, the path to the shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming the alternatives it considered and what it rejected.
 
 If a candidate produces no output, proceed with N-1 and note the dropout.
 

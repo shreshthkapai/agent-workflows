@@ -39,7 +39,7 @@ Every model written must be in the detected set. `inherit` always passes. Each `
 
 ### 5. Write the registry
 
-Write `~/.config/agent-workflows/models.toml` with a `budget` line, one `[models.<name>]` table per model, and one line per role, using the role names poteto-mode uses. Overwrite the whole file so re-runs stay idempotent. Shape:
+Write `~/.config/agent-workflows/models.toml` with a `budget` line, one `[models.<name>]` table per model, and one line per role, using the role names the workflow skill uses. Overwrite the whole file so re-runs stay idempotent. Shape:
 
 ```toml
 # pstack model configuration. One line per role. Delete a role to fall back to the skill default.

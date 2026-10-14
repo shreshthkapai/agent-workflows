@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Investigate the motivation and intent behind code. The companion `how` skill answers what the code does and how it works. `why` answers what forces led to its shape.
 
-Each spawn below names a role in `~/.config/agent-workflows/models.toml`. Resolve its model with `aw-run --resolve <role>` and spawn per the Subagents section of the **poteto-mode** skill. A role of `inherit` runs on the parent model. If the spawn or `aw-run` rejects the model, use the model's `fallback` and say so. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+Each spawn below names a role in `~/.config/agent-workflows/models.toml`. Resolve its model with `aw-run --resolve <role>` and spawn per the Subagents section of the **workflow** skill. A role of `inherit` runs on the parent model. If the spawn or `aw-run` rejects the model, use the model's `fallback` and say so. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **workflow** skill.
 
 Every spawn is a general-purpose subagent, not read-only. **Do not use a read-only agent type or `aw-run --read-only`.** Read-only modes can block MCP tools, which disables the MCP-backed investigators and the synthesizer's citation spot-checks. Investigators still shouldn't write anything.
 

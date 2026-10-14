@@ -26,11 +26,11 @@ Before spawning reviewers, state the intent in one clear paragraph from the user
 
 Launch all reviewers in a single message, one per entry in the `interrogate_reviewers` role in `~/.config/agent-workflows/models.toml`, labeled Reviewer A, B, and so on to match the entry count. Resolve the entries with `aw-run --resolve interrogate_reviewers`. The shipped registry lists one `claude` and one `codex` entry.
 
-Each reviewer is a general-purpose, read-only subagent on its entry's model, spawned per the Subagents section of the **poteto-mode** skill (`aw-run interrogate_reviewers --index <n> --read-only` for an entry on the other provider). An `inherit` entry runs that reviewer on the parent model.
+Each reviewer is a general-purpose, read-only subagent on its entry's model, spawned per the Subagents section of the **workflow** skill (`aw-run interrogate_reviewers --index <n> --read-only` for an entry on the other provider). An `inherit` entry runs that reviewer on the parent model.
 
 If the spawn or `aw-run` rejects an entry's model or its provider is unavailable, run that reviewer on the model's `fallback` and say so. Families are providers, so a fallback onto the other reviewer's provider leaves the panel single-family. Report that. Do not block the review on the model issue. Never treat an `inherit` entry as a rejected model or apply the fallback to it.
 
-Read `references/reviewer-prompt.md` and fill in the same template for every reviewer with the stated intent, the diff or file contents, the rubric from `references/rubric.md`, and the code-quality lens from `references/code-quality-review.md`. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+Read `references/reviewer-prompt.md` and fill in the same template for every reviewer with the stated intent, the diff or file contents, the rubric from `references/rubric.md`, and the code-quality lens from `references/code-quality-review.md`. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **workflow** skill.
 
 ## Step 4, Synthesize
 

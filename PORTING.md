@@ -10,10 +10,10 @@ Keep every sentence that works in a terminal CLI. Change a passage only when it 
 
 | Upstream (Cursor) | Port |
 | --- | --- |
-| `Task` tool, `Task` call, Task spawn | subagent, spawn a subagent. Native tool in the current CLI, `aw-run` for another provider, per the Subagents section of **poteto-mode** |
+| `Task` tool, `Task` call, Task spawn | subagent, spawn a subagent. Native tool in the current CLI, `aw-run` for another provider, per the Subagents section of **workflow** |
 | `run_in_background: true` | in the background |
 | `subagent_type: generalPurpose` | a general-purpose subagent |
-| `subagent_type: "poteto-agent"` | the `poteto-agent` agent |
+| `subagent_type: "poteto-agent"` | the `delegate` agent |
 | readonly subagent | read-only subagent (`aw-run --read-only`, or a native read-only agent) |
 | `environment: "cloud"`, cloud workers, `cloud_base_branch` | a local git worktree per worker, created from the named branch |
 | Model slugs (`grok-*`, `claude-opus-*`, `composer-*`) and model families | the role's model from `aw-run --resolve <role>`. Families are providers: `claude` and `codex` |
@@ -31,6 +31,10 @@ Keep every sentence that works in a terminal CLI. Change a passage only when it 
 | `icon`, `color`, `is_background` frontmatter | removed. Skill `name` is the kebab-case directory name |
 
 Skills and plugins from other Cursor packages (`cursor-team-kit`'s `deslop`, `control-cli`, `control-ui`; Origin) stay named, marked as optional when installed. MCP references stay. Both CLIs support MCP.
+
+## Renamed
+
+The workflow is always on, not a mode the user invokes. `poteto-mode` is `workflow`, `poteto-agent` is `delegate`, and `poteto-help` is `pstack-help`. Passages that told the user to start a task with `/poteto-mode` now say the workflow skill is already active. Upstream text otherwise keeps its wording.
 
 ## Removed
 

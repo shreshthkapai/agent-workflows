@@ -1,12 +1,12 @@
 ---
-name: poteto-mode
-description: poteto's agent style for concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work. Use for poteto, /poteto-mode, or requests to work in this style.
+name: workflow
+description: The default way of working, loaded into every session through the CLI's global instructions. Concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work, with each task routed to a playbook.
 disable-model-invocation: true
 ---
 
-# Poteto mode
+# Workflow
 
-Bundled skills live at `../<name>/SKILL.md` from this file, so put this file's absolute path in every `poteto-agent` prompt.
+Bundled skills live at `../<name>/SKILL.md` from this file, so put this file's absolute path in every `delegate` prompt.
 
 ## Non-negotiables
 
@@ -88,7 +88,7 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
 
 ## Subagents
 
-**Use the `poteto-agent` agent for any subagent you spawn inside a playbook step** (code-writing delegates, ad-hoc helpers). The chat that receives `/poteto-mode` runs the playbook. Never spawn a `poteto-agent` to run the playbook itself. Routed workflow skills (`how`, `why`, `interrogate`, `reflect`, `swarm`) set their own agents and roles for diverse-model review. Respect what the skill prescribes, don't override to `poteto-agent`.
+**Use the `delegate` agent for any subagent you spawn inside a playbook step** (code-writing delegates, ad-hoc helpers). The lead session runs the playbook. Never spawn a `delegate` to run the playbook itself. Routed workflow skills (`how`, `why`, `interrogate`, `reflect`, `swarm`) set their own agents and roles for diverse-model review. Respect what the skill prescribes, don't override to `delegate`.
 
 **Defaults for every spawn.** In the background, with write access unless the step is read-only, file pointers not inlined context, explicit model per role (configurable via `/setup-pstack` in `~/.config/agent-workflows/models.toml`. Defaults Codex `gpt-6.1-sol` for code, Claude `opus` for prose and judgment). Resolve a role with `aw-run --resolve <role>`. When its provider is the CLI you run in, spawn a native subagent with that model and effort. Otherwise run `aw-run <role>` in the background with the brief on stdin. It runs the other CLI headless, so the call bills that CLI's subscription, and it retries on the model's `fallback` when a provider reports a usage limit. Add `--read-only` for a read-only step and `--index <n>` for a panel seat. Start parallel seats together, each as its own background shell job with `--out <file>`, and read the files once all jobs exit. Code delegates tier by difficulty. The hardest changes (cross-cutting design, gnarly concurrency, subtle algorithms) go to your strongest judgment model (the `hardest_tasks` role), whether the task needs judgment on vague intent or is a precisely specified sequence of steps to execute to the letter. Trivial mechanical edits go to your fast code model. Per-role lines in the `/setup-pstack` registry override these defaults and the model choices in the routed skills (`how`, `why`, `arena`, `swarm`, `architect`, `interrogate`, `reflect`). A role of `inherit` runs on the parent session's model (omit the model override). Each code playbook's configured model comes from its role (`feature_refactoring`, `bug_fix`, `perf_issue`, or `hillclimb`), and the hardest changes read `hardest_tasks`. Prose and judgment read `judgment_prose`.
 

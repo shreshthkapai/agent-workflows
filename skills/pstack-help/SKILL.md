@@ -1,14 +1,14 @@
 ---
-name: poteto-help
-description: Guides users through pstack setup, /poteto-mode, and picking the skill, playbook, or principle for a task. Type /poteto-help with a question.
+name: pstack-help
+description: Guides users through pstack setup, the always-on workflow, and picking the skill, playbook, or principle for a task. Type /pstack-help with a question.
 disable-model-invocation: true
 ---
 
-# Poteto help
+# pstack help
 
 Answer the user's question about pstack, hand them a prompt they can send, and link the file the answer came from. For a help question, don't start the work. The user asked how, and a pstack run spends real tokens, so let them send the prompt.
 
-A message that asks for work, such as "use pstack to fix this bug", is not a help question. Read [`poteto-mode`](../poteto-mode/SKILL.md), and do the work under it.
+A message that asks for work, such as "use pstack to fix this bug", is not a help question. Do the work under the [`workflow`](../workflow/SKILL.md) skill, which is already active.
 
 This file maps questions to the skills and guide pages that hold the answers. Those files own the details. Read the file you route to before you quote it, and trust it when it disagrees with this map. The skill links here point into the installed skills, so give the user the installed file's absolute path. The README and guide pages are not installed, so give the user their upstream public copy: `https://github.com/cursor/plugins/blob/main/pstack/` followed by its path. The guide describes Cursor, so say which steps differ in this CLI.
 
@@ -17,7 +17,7 @@ This file maps questions to the skills and guide pages that hold the answers. Th
 Infer the need from the message and the conversation. A named situation, such as "which skill reviews a PR?", goes straight to its section. If the need is still unclear, ask one multiple-choice question with these options, then answer only the section they pick:
 
 - Get set up
-- Start a task with `/poteto-mode`
+- Start a task
 - Pick a skill for a situation
 - Fix a run that went wrong
 - Make pstack my own
@@ -36,32 +36,27 @@ When the model registry is missing or still the default and it matters, ask whet
 
 1. Install with this package's `install.py`, for Claude Code or Codex.
 2. Run [`/setup-pstack`](../setup-pstack/SKILL.md). It asks for a reasoning budget, maps a model to each role, and writes the model registry. The registry applies from the next spawn.
-3. Start a real task with `/poteto-mode`, a goal, and a check that can pass or fail.
+3. Start a real task with a goal and a check that can pass or fail. The installer loads the workflow skill into every session, so no command is needed.
 
 Installing changes nothing until the user invokes a skill. Only `/setup-pstack` loads from the user's words. The [README](https://github.com/cursor/plugins/blob/main/pstack/README.md) and [guide page 1](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/01-setup.md) have the details. Offer to word their first prompt with them, per [`references/prompting.md`](references/prompting.md).
 
-If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models. A role set to `inherit` runs on the session's model, which saves tokens when the session runs on a cheaper model. Each model's `provider` decides which subscription pays, so moving a busy role to the other provider spreads the load. A shorter panel list runs fewer subagents, one for each entry. Save `/poteto-mode` for work that needs rigor.
+If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models. A role set to `inherit` runs on the session's model, which saves tokens when the session runs on a cheaper model. Each model's `provider` decides which subscription pays, so moving a busy role to the other provider spreads the load. A shorter panel list runs fewer subagents, one for each entry. Ask for a lighter pass when a task doesn't need the full playbook.
 
-This is pstack ported from Cursor to Claude Code and Codex. Workflow skills, including `/poteto-mode`, `/how`, `/why`, and `/teach`, spawn subagents with per-role models, natively in the current CLI or through `aw-run` on the other one. Codex invokes each skill as `$name` instead of `/name`. Custom Modes are a Cursor feature, and `/loop` exists in Claude Code but not in Codex.
+This is pstack ported from Cursor to Claude Code and Codex. The workflow skill and skills such as `/how`, `/why`, and `/teach`, spawn subagents with per-role models, natively in the current CLI or through `aw-run` on the other one. Codex invokes each skill as `$name` instead of `/name`. Custom Modes are a Cursor feature, and `/loop` exists in Claude Code but not in Codex.
 
-## Start a task with `/poteto-mode`
+## Start a task
 
-`/poteto-mode` matches the task to a playbook, copies the playbook's steps into the todo list, and runs the other skills as the steps need them. A step it skips stays in the list as `skip: <reason>`. A good prompt states the goal and how to tell it's done. It doesn't list skills, because a hand-written sequence tends to drop or reorder steps the playbook would keep. Read [`references/prompting.md`](references/prompting.md) before you help word one. [Guide page 2](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/02-poteto-mode.md) has examples.
+The workflow skill matches the task to a playbook, copies the playbook's steps into the todo list, and runs the other skills as the steps need them. A step it skips stays in the list as `skip: <reason>`. A good prompt states the goal and how to tell it's done. It doesn't list skills, because a hand-written sequence tends to drop or reorder steps the playbook would keep. Read [`references/prompting.md`](references/prompting.md) before you help word one. [Guide page 2](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/02-poteto-mode.md) has examples.
 
-Whether `/poteto-mode` stays on depends on how the user starts it:
-
-- `/poteto-mode` attaches the skill to one message. It fades as the chat moves on.
-- Neither CLI has Cursor's Custom Modes, so start each new task with `/poteto-mode`.
-
-Link the CLI's own skills docs when this comes up. Mid-chat, "new task" makes the mode match a fresh playbook. `/poteto-mode` already uses `poteto-agent` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, spawn the `poteto-agent` agent.
+The installer imports the workflow skill into the CLI's global instructions (`~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`), so it applies to every session and does not fade. Mid-chat, "new task" makes it match a fresh playbook. It already uses `delegate` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, spawn the `delegate` agent.
 
 ## Pick a skill
 
-The default answer is `/poteto-mode`, which runs most of the others when its steps need them. Name a skill directly when the user wants more or less of something than the playbook gives. Read the skill before you recommend it, and give one example prompt.
+The default answer is to describe the task. The workflow skill runs most of the others when its steps need them. Name a skill directly when the user wants more or less of something than the playbook gives. Read the skill before you recommend it, and give one example prompt.
 
 | The user wants to | Skill |
 |---|---|
-| Do any non-trivial task with rigor | [`/poteto-mode`](../poteto-mode/SKILL.md) |
+| Do any non-trivial task with rigor | Describe it. The [`workflow`](../workflow/SKILL.md) skill is always on |
 | Check that the agent understood their goal and the problem before it starts | [`/in-your-own-words`](../in-your-own-words/SKILL.md) |
 | Aim a task higher before starting: more expert, more outcome-focused, not overspecified | [`/sharpen`](../sharpen/SKILL.md) |
 | Know how code works now, or where new code should live | [`/how`](../how/SKILL.md) |
@@ -89,7 +84,7 @@ The default answer is `/poteto-mode`, which runs most of the others when its ste
 | Turn their own working habits into a personal mode skill | [`/automate-me`](../automate-me/SKILL.md) |
 | Turn what a finished task taught into skill edits | [`/reflect`](../reflect/SKILL.md) |
 | Stop agents from repeating the same mistakes in this repo | [`/correct`](../correct/SKILL.md) |
-| Find their way around pstack | `/poteto-help` |
+| Find their way around pstack | `/pstack-help` |
 
 If a skill directory next to this one is missing from the table, read its frontmatter and route by its description. The `principle-*` directories are covered under principles below.
 
@@ -106,11 +101,11 @@ Not in pstack:
 
 - `/deslop`, `control-cli`, and `control-ui` ship in the `cursor-team-kit` plugin.
 - `/loop` is a Claude Code built-in. Codex has none. `skill-creator` comes with the CLI.
-- pstack has no `/orchestrate` skill. Orchestrate is a `/poteto-mode` playbook. If the slash menu shows `/orchestrate`, another plugin provides it.
+- pstack has no `/orchestrate` skill. Orchestrate is a workflow playbook. If the slash menu shows `/orchestrate`, another plugin provides it.
 
 ## Playbooks and principles
 
-Playbooks are step lists inside `/poteto-mode`, not skills, so they have no slash command. Inside `/poteto-mode`, describing the task picks one, and these phrases name one directly:
+Playbooks are step lists inside the workflow skill, not skills, so they have no slash command. Describing the task picks one, and these phrases name one directly:
 
 - "babysit this pr" or "check on pr 123" runs Babysit. It drives the PR to merge-ready and stops there. It doesn't merge unless the user asks to merge, land, or ship.
 - "land the stack" runs Shipping.
@@ -119,21 +114,21 @@ Playbooks are step lists inside `/poteto-mode`, not skills, so they have no slas
 - "full autopilot on this queue" runs Autopilot-full. "stack them, don't ship" runs Autopilot-stack.
 - "run the eval playbook" runs Eval.
 
-Without `/poteto-mode`, a phrase such as "babysit this pr" doesn't reach the playbook. The Playbooks section of [`poteto-mode`](../poteto-mode/SKILL.md) lists every playbook and when it applies. [Guide page 6](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/06-verify-and-ship.md) covers opening, babysitting, and landing a PR.
+The Playbooks section of [`workflow`](../workflow/SKILL.md) lists every playbook and when it applies. [Guide page 6](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/06-verify-and-ship.md) covers opening, babysitting, and landing a PR.
 
-pstack has no planning skill. Claude Code's plan mode works alongside it. For work that spans phases or stacked PRs, asking `/poteto-mode` for a plan runs the [Multi-phase plan playbook](../poteto-mode/playbooks/multi-phase-plan.md), which writes the plan and doesn't implement it. For a design question, the Prototype playbook or `/architect` settles it in code first.
+pstack has no planning skill. Claude Code's plan mode works alongside it. For work that spans phases or stacked PRs, asking for a plan runs the [Multi-phase plan playbook](../workflow/playbooks/multi-phase-plan.md), which writes the plan and doesn't implement it. For a design question, the Prototype playbook or `/architect` settles it in code first.
 
-Principles are one-rule skills that `/poteto-mode` reads and cites in its replies. The user rarely invokes one. They steer with the names instead, as in "apply prove it works. show me the real output." Typing `/principle-<name>` still loads one on demand. [Guide page 8](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/08-principles.md) lists them.
+Principles are one-rule skills that the workflow skill reads and cites in its replies. The user rarely invokes one. They steer with the names instead, as in "apply prove it works. show me the real output." Typing `/principle-<name>` still loads one on demand. [Guide page 8](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/08-principles.md) lists them.
 
 ## Fix a run that went wrong
 
 | Symptom | Fix |
 |---|---|
-| The mode stopped applying after a few turns | It fades as the chat moves on. Start each task with `/poteto-mode`. |
-| A question got treated as the next step of the last task | Say "new task", or say the turn doesn't need the mode. |
+| The workflow stopped applying | Check that the install's block is still in `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. |
+| A question got treated as the next step of the last task | Say "new task", or say the turn doesn't need a playbook. |
 | A new model choice had no effect | Check the role with `aw-run --resolve <role>`. A role set to `inherit` follows the session's model. |
 | Runs cost more than expected | See the cost paragraph under Get set up. |
-| A skill didn't load on its own | Only `/setup-pstack` loads from the user's words. The others load when the user types them or when `/poteto-mode` runs them, and it doesn't run every skill. |
+| A skill didn't load on its own | Only `/setup-pstack` loads from the user's words. The others load when the user types them or when the workflow skill runs them, and it doesn't run every skill. |
 | Parallel agents overwrote each other | Give each agent its own worktree. |
 | An overnight run moved but finished nothing | `/loop` (Claude Code) needs a check that can pass or fail, not a duration. See [guide page 7](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/07-overnight.md). |
 | The reply claims success from a green build | Ask for the real command, flow, stored value, or profile. That's the prove-it-works principle. |
@@ -142,9 +137,9 @@ For a run that drifts, [`references/prompting.md`](references/prompting.md) has 
 
 ## Make pstack my own
 
-- [`/automate-me`](../automate-me/SKILL.md) drafts a personal mode skill from the user's own history, to use alongside `/poteto-mode`.
+- [`/automate-me`](../automate-me/SKILL.md) drafts a personal mode skill from the user's own history, to use alongside the workflow skill.
 - [`/reflect`](../reflect/SKILL.md) after a session turns its lessons into skill edits the user approves.
-- `/poteto-mode write a skill for <workflow>` runs the authoring playbook. The eval playbook tests a skill change blind.
+- `write a skill for <workflow>` runs the authoring playbook. The eval playbook tests a skill change blind.
 - Fix a misbehaving skill in its own PR, not inside the feature work where it went wrong.
 
 [Guide page 9](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/09-make-it-yours.md) covers each of these.

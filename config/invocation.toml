@@ -1,0 +1,34 @@
+# Install defaults for install.py. Upstream marks every skill manual; these override that.
+# `--auto` on the command line replaces the auto list for one install.
+
+# Imported into every session through the CLI's global instructions (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md).
+always = ["workflow"]
+
+# The model may load these on its own. Every other skill is manual.
+auto = [
+  "arena",
+  "figure-it-out",
+  "show-me-your-work",
+  "tdd",
+  "unslop",
+  "principle-boundary-discipline",
+  "principle-build-the-lever",
+  "principle-encode-lessons-in-structure",
+  "principle-exhaust-the-design-space",
+  "principle-experience-first",
+  "principle-fix-root-causes",
+  "principle-foundational-thinking",
+  "principle-guard-the-context-window",
+  "principle-laziness-protocol",
+  "principle-make-operations-idempotent",
+  "principle-migrate-callers-then-delete-legacy-apis",
+  "principle-minimize-reader-load",
+  "principle-never-block-on-the-human",
+  "principle-outcome-oriented-execution",
+  "principle-prove-it-works",
+  "principle-redesign-from-first-principles",
+  "principle-separate-before-serializing-shared-state",
+  "principle-sequence-verifiable-units",
+  "principle-subtract-before-you-add",
+  "principle-type-system-discipline",
+]

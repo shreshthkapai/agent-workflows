@@ -16,11 +16,11 @@ python3 install.py --runtime codex --skills all
 Each install writes:
 
 - The selected skills to `~/.claude/skills` or `~/.codex/skills` (`--dest` for another directory).
-- The `poteto-agent` and `comment-sicko` agents to `~/.claude/agents` or `~/.codex/agents`.
+- The `delegate` and `comment-sicko` agents to `~/.claude/agents` or `~/.codex/agents`.
 - `aw-run` to `~/.local/bin`.
 - The model registry to `~/.config/agent-workflows/models.toml`, only when it does not exist yet.
 
-Skills keep upstream's invocation setting. Most are manual, so invoke them as `/name` in Claude Code and `$name` in Codex. `--auto name,...` lets the model pick selected skills on its own. `--force` replaces installed copies, and `--uninstall` removes them. Skills reference each other by relative path, so install `poteto-mode` together with the skills it routes to.
+Invocation defaults live in `config/invocation.toml`. The `workflow` skill is always on: the installer adds a marked block to `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md` that loads it into every session, so tasks route to its playbooks without a command. The skills in its `auto` list load on their own when relevant. Every other skill is manual, invoked as `/name` in Claude Code and `$name` in Codex. `--auto name,...` replaces the auto list for one install. `--force` replaces installed copies, and `--uninstall` removes them and the block. Skills reference each other by relative path, so install `workflow` together with the skills it routes to.
 
 ## Model routing
 
