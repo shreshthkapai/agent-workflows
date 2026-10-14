@@ -1,55 +1,58 @@
 # Agent Workflows
 
-[pstack](https://github.com/cursor/plugins/tree/main/pstack), Lauren Tan's skills for Cursor, ported to Claude Code, Codex, and Grok. One model registry routes each role to whichever of those CLIs you have, so every call bills the subscription of the CLI that runs it.
+Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack) skills for Claude Code, Codex, and Grok, with every subagent role routed to the model and subscription you choose.
 
 ## Install
 
-Requires Python 3.11 or newer and at least one of Claude Code, Codex, or Grok. Some playbook scripts need `bun` or `node`.
+You need Python 3.11 or newer and at least one of Claude Code, Codex, or Grok. Some playbook scripts also need `bun` or `node`.
 
 ```sh
 git clone https://github.com/shreshthkapai/agent-workflows.git ~/agent-workflows
 ~/agent-workflows/install.py
 ```
 
-The installer finds every CLI on your `PATH` and installs into each one:
+The installer finds each CLI on your `PATH` and installs into all of them. Start a new session afterwards. The `workflow` skill loads into every session, so tasks follow its playbooks without a command.
+
+The skills call `aw` and `aw-run` from `~/.local/bin`, so add that directory to your `PATH` if the installer says it is missing.
+
+Update:
+
+```sh
+cd ~/agent-workflows && git pull && aw install
+```
+
+Remove everything the installer added. Your model and skill settings stay.
+
+```sh
+aw uninstall
+```
+
+## What the installer writes
 
 - The skills to `~/.claude/skills`, `~/.codex/skills`, or `~/.grok/skills`.
 - The `delegate` and `comment-sicko` agents to each CLI's `agents` directory.
-- A marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md` that loads the `workflow` skill into every session, so tasks route to its playbooks without a command.
-- `aw` and `aw-run` to `~/.local/bin`. `aw` links back to the checkout, so keep it.
-- The model registry to `~/.config/agent-workflows/models.toml`, only when it does not exist yet.
+- A marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md` that loads the `workflow` skill.
+- `aw` and `aw-run` in `~/.local/bin`. `aw` links back to the checkout, so keep the checkout.
+- The model registry at `~/.config/agent-workflows/models.toml`, if you don't have one yet.
 
-Update with `git pull && aw install`. A rerun replaces only what `aw` installed, and stops before overwriting a skill or agent it did not install unless you pass `--force`. `aw install --runtime codex` installs into one CLI, `--skills a,b` installs a subset, and `--dry-run` prints the plan. `aw uninstall` removes everything `aw` installed and keeps your settings.
+A rerun replaces only the files `aw` wrote. It stops before it overwrites a skill or agent it did not install, unless you pass `--force`. Other options are `--runtime codex` for one CLI, `--skills a,b` for a subset, and `--dry-run` to print the plan.
 
-Grok also reads Claude Code's files, so with both installed it uses its own copies of the skills and agents and loads the workflow block from both instruction files.
+Grok also reads Claude Code's files. With both installed, Grok uses its own copies of the skills and agents and loads the workflow block from both instruction files.
 
-## Skills: auto or manual
+## Choose models
 
-The `workflow` skill is always on. An auto skill loads on its own when the task matches its description. A manual skill runs only when you invoke it, as `/name` in Claude Code and Grok or `$name` in Codex, or when the workflow routes a step to it.
-
-```sh
-aw skills                      # every skill and its mode
-aw skills auto reflect         # let the model load it on its own
-aw skills manual swarm arena   # only when invoked or routed
-aw skills default swarm        # back to the package default
-```
-
-Changes apply to every installed CLI at once and are saved to `~/.config/agent-workflows/skills.toml`, so updates keep them. Package defaults live in `config/invocation.toml`.
-
-## Model routing
-
-`~/.config/agent-workflows/models.toml` maps each pstack role to a model, and each model to the CLI that runs it. The main agent is not in it: each CLI's own model setting picks that.
+Each pstack role, such as `bug_fix` or `arena_runners`, runs on the model you assign it. Each model belongs to one CLI, and that CLI's plan pays for the call. Each CLI's own model setting picks the main agent, so the registry does not list it.
 
 ```sh
-aw models                                     # every role's model, effort, and speed
-aw models set bug_fix opus:high               # one role
-aw models set arena_runners opus:high sol:high   # a panel, one subagent per entry
+aw models                                        # every role's model, effort, and speed
+aw models set bug_fix opus:high                  # one role
+aw models set arena_runners opus:high sol:high   # a panel runs one subagent per entry
 ```
 
-`aw models set` checks the entry before saving it. Edit the file by hand to add models, or run `/setup-pstack` to be walked through every role.
+An entry is `model`, `model:effort`, or `model:effort:fast`. Only Codex models have a fast tier. `aw models set` rejects an unknown role, model, or effort and leaves the file unchanged. To add a model, edit `~/.config/agent-workflows/models.toml`. `/setup-pstack` walks you through every role.
 
 ```toml
-budget = "large"          # starting effort: unlimited=max, large=xhigh, medium=high, small=medium
+budget = "large"            # effort for entries that name none: unlimited=max, large=xhigh, medium=high, small=medium
 
 [models.opus]
 provider = "claude"
@@ -57,24 +60,39 @@ model = "opus"
 fallback = ["sol", "grok"]  # used when Claude is not installed or reports a usage limit
 
 [roles]
-judgment_prose = "opus"
-arena_runners = ["opus", "sol"]
+judgment_prose = "opus:high"
+arena_runners = ["opus:high", "sol:high"]
 ```
 
-Use any mix of plans. A model whose CLI is not installed resolves to the first installed model in its `fallback` chain, so the shipped registry works with one, two, or all three CLIs.
+The shipped registry works with any mix of plans. If a model's CLI is not installed, `aw-run` uses the first installed model in its `fallback` list.
 
-Skills resolve a role with `aw-run --resolve <role>`. When the role's provider is the CLI you are in, the lead spawns a native subagent with that model and effort. Otherwise it runs `aw-run <role> < brief.md`, which runs `claude -p`, `codex exec`, or `grok --prompt-file` headless:
+## Choose auto or manual skills
 
-- A role entry can set its own effort and speed, as in `bug_fix = "sol:high"` or `how_explorer = "luna:xhigh:fast"`. Only Codex models have a fast tier. An entry without an effort uses `budget`.
-- `--shift -2` lowers effort two steps for routine work, `--shift 1` raises it for the hardest.
+The `workflow` skill is always on. The model loads an auto skill on its own when a task matches the skill's description. A manual skill runs only when you invoke it, as `/name` in Claude Code and Grok or `$name` in Codex, or when a workflow step calls it.
+
+```sh
+aw skills                      # every skill and its mode
+aw skills auto reflect         # the model may load it on its own
+aw skills manual swarm arena   # only when invoked or called by the workflow
+aw skills default swarm        # back to the package default
+```
+
+`aw skills` changes every installed CLI at once and saves your choices in `~/.config/agent-workflows/skills.toml`, so updates keep them. The package defaults are in `config/invocation.toml`.
+
+## Check plan limits
+
+`aw limits`, or `/limits` in a session (`$limits` in Codex), shows how much of each plan you have used and when each window resets. Claude and Codex report live numbers. Grok shows its allowance only inside the Grok CLI, so `aw limits` points you to Grok's `/usage`.
+
+## How a subagent reaches another provider
+
+A skill looks up a role with `aw-run --resolve <role>`. If the role's model belongs to the CLI you are in, the lead spawns a native subagent with that model and effort. If not, it runs `aw-run <role> < brief.md`, which starts `claude -p`, `codex exec`, or `grok --prompt-file` in headless mode and returns the final message.
+
+- `aw-run` tells each child that it is the lead's delegate, so the child does its task and does not start its own playbook.
+- `--shift -2` lowers effort two steps for routine work, and `--shift 1` raises it one step for the hardest work.
 - `--read-only` runs Claude in plan mode and Codex and Grok in their read-only sandboxes.
-- No CLI runs with permission or sandbox bypass flags.
-- Every call is appended to `~/.local/state/agent-workflows/runs.jsonl` with its role, provider, model, effort, duration, and usage, so you can check how the work splits between subscriptions.
-
-## Plan limits
-
-`/limits` (`$limits` in Codex), or `aw limits` in a shell, shows the live usage limits of each plan you have: each window's percent used and when it resets. Claude and Codex report live numbers. Grok shows its allowance only inside the Grok CLI, so `aw limits` points you to its `/usage`.
+- No CLI runs with a permission or sandbox bypass flag.
+- `aw-run` appends each call to `~/.local/state/agent-workflows/runs.jsonl` with its role, provider, model, effort, duration, and token usage.
 
 ## Upstream
 
-`PORTING.md` lists every substitution. Commit `0e257f7` is upstream verbatim, so `git diff 0e257f7 -- skills agents` shows each porting edit. Upstream's [guide](https://github.com/cursor/plugins/tree/main/pstack/docs/guide) explains the workflows. Its Cursor UI steps do not apply here.
+`PORTING.md` lists every change from upstream. Commit `0e257f7` is upstream verbatim, so `git diff 0e257f7 -- skills agents` shows each porting edit. Upstream's [guide](https://github.com/cursor/plugins/tree/main/pstack/docs/guide) explains the workflows. Its Cursor UI steps do not apply here.
