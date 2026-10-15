@@ -93,6 +93,10 @@ aw skills default swarm        # back to the package default (`all` works here t
 
 `aw limits`, or `/limits` in a session (`$limits` in Codex), shows how much of each plan you have used and when each window resets. Claude and Codex report live numbers. Grok shows its allowance only inside the Grok CLI, so `aw limits` points you to Grok's `/usage`.
 
+## Check upstream
+
+`/upstream` (`$upstream` in Codex) summarizes what changed in pstack since this port last imported it. It lists new and removed skills, says what each changed skill gained, lost, or cut, and recommends which changes to pull. It also checks poteto's `plugins` fork. It only reports and never edits the port.
+
 ## How a subagent reaches another provider
 
 A skill looks up a role with `aw-run --resolve <role>`. If the role's model belongs to the CLI you are in, the lead spawns a native subagent with that model and effort. If not, it runs `aw-run <role> < brief.md`, which starts `claude -p`, `codex exec`, or `grok --prompt-file` in headless mode and returns the final message.

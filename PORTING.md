@@ -38,6 +38,7 @@ The workflow is manual by default, as upstream's `poteto-mode` is, and `aw skill
 
 ## Added
 
+- `limits` and `upstream`, manual skills with no upstream counterpart. `upstream` reports what changed in pstack since the last `Import upstream pstack verbatim` commit.
 - `delegate`, and the workflow's Playbooks section, say a delegate does its task itself, and that playbooks and subagent spawns are the lead's. Upstream relies on Cursor subagents being unable to act as leads. Here a native subagent or an `aw-run` child read the always-on workflow and ran playbooks.
 
 ## Removed
