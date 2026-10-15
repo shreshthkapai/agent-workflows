@@ -1,6 +1,6 @@
 ---
 name: workflow
-description: The default way of working, loaded into every session through the CLI's global instructions. Concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work, with each task routed to a playbook.
+description: Concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work, with each task routed to a playbook. Use for /workflow, or for requests to work in this style. `aw skills always workflow` loads it into every session.
 disable-model-invocation: true
 ---
 

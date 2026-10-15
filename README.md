@@ -11,7 +11,7 @@ git clone https://github.com/shreshthkapai/agent-workflows.git ~/agent-workflows
 ~/agent-workflows/install.py
 ```
 
-The installer finds each CLI on your `PATH` and installs into all of them. Start a new session afterwards. The `workflow` skill loads into every session, so tasks follow its playbooks without a command.
+The installer finds each CLI on your `PATH` and installs into all of them. Start a new session afterwards. Type `/workflow` (`$workflow` in Codex) before a task to run it through the workflow's playbooks, or run `aw skills always workflow` once to load the workflow into every session.
 
 The skills call `aw` and `aw-run` from `~/.local/bin`, so add that directory to your `PATH` if the installer says it is missing.
 
@@ -31,13 +31,13 @@ aw uninstall
 
 - The skills to `~/.claude/skills`, `~/.codex/skills`, or `~/.grok/skills`.
 - The `delegate` and `comment-sicko` agents to each CLI's `agents` directory.
-- A marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md` that loads the `workflow` skill.
+- With the workflow always on, a marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md` that loads it into every session.
 - `aw` and `aw-run` in `~/.local/bin`. `aw` links back to the checkout, so keep the checkout.
 - The model registry at `~/.config/agent-workflows/models.toml`, if you don't have one yet.
 
 A rerun replaces only the files `aw` wrote. It stops before it overwrites a skill or agent it did not install, unless you pass `--force`. Other options are `--runtime codex` for one CLI, `--skills a,b` for a subset, and `--dry-run` to print the plan.
 
-Grok also reads Claude Code's files. With both installed, Grok uses its own copies of the skills and agents and loads the workflow block from both instruction files.
+Grok also reads Claude Code's files. With both installed, Grok uses its own copies of the skills and agents. With the workflow always on, Grok loads its block from both instruction files.
 
 ## Choose models
 
@@ -68,23 +68,24 @@ The shipped registry works with any mix of plans. If a model's CLI is not instal
 
 ## Choose auto or manual skills
 
-By default the `workflow` skill is always on, so every task follows its playbooks without a command. The model loads an auto skill on its own when a task matches the skill's description. A manual skill runs only when you invoke it, as `/name` in Claude Code and Grok or `$name` in Codex, or when a workflow step calls it.
+The `workflow` skill is manual by default, as upstream pstack's `/poteto-mode` is. Type `/workflow` (`$workflow` in Codex) at the start of a task that needs rigor. To load it into every session instead, so every task follows its playbooks without a command:
+
+```sh
+aw skills always workflow      # adds the marked block to each CLI's global instructions
+aw skills manual workflow      # removes it again
+```
+
+The always-on workflow adds about 5k tokens of instructions to every session and to every subagent it spawns, and it runs the full playbook even for small fixes.
+
+The model loads an auto skill on its own when a task matches the skill's description, and each auto skill adds its one-line description to every session. A manual skill runs only when you invoke it, as `/name` in Claude Code and Grok or `$name` in Codex, or when a workflow step calls it.
 
 ```sh
 aw skills                      # every skill and its mode
 aw skills auto reflect         # the model may load it on its own
 aw skills manual swarm arena   # only when invoked or called by the workflow
-aw skills default swarm        # back to the package default
+aw skills manual all           # every skill except the workflow, as in upstream
+aw skills default swarm        # back to the package default (`all` works here too)
 ```
-
-Upstream pstack works the other way. Its workflow is manual, so you start each task with `/poteto-mode`, and almost every other skill is manual too. To work that way:
-
-```sh
-aw skills manual workflow      # no always-on block; type /workflow ($workflow in Codex) to use it
-aw skills manual all           # every other skill manual as well
-```
-
-`aw skills default workflow` and `aw skills default all` undo these. The always-on workflow adds about 5k tokens of instructions to every session, and each auto skill adds its one-line description. A manual skill adds nothing until it runs.
 
 `aw skills` changes every installed CLI at once and saves your choices in `~/.config/agent-workflows/skills.toml`, so updates keep them. The package defaults are in `config/invocation.toml`.
 

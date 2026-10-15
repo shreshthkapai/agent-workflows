@@ -1,8 +1,9 @@
 # Package defaults for skill invocation. Upstream marks every skill manual; these override that.
-# Users change their own with `aw skills auto|manual NAME`, saved in ~/.config/agent-workflows/skills.toml.
+# Users change their own with `aw skills auto|manual|always NAME`, saved in ~/.config/agent-workflows/skills.toml.
 
-# Imported into every session through the CLI's global instructions (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.grok/AGENTS.md).
-always = ["workflow"]
+# Imported into every session through the CLI's global instructions (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md,
+# ~/.grok/AGENTS.md). Empty by default, as in upstream: invoke /workflow per task, or run `aw skills always workflow`.
+always = []
 
 # The model may load these on its own. Every other skill is manual.
 auto = [

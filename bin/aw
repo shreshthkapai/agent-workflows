@@ -4,7 +4,8 @@
   aw install [--runtime NAME] [--skills a,b] [--dry-run] [--force]   install or update every CLI found
   aw uninstall [--runtime NAME]
   aw skills                                    list each skill's invocation
-  aw skills auto|manual|default NAME [NAME...]  change it in every installed CLI
+  aw skills auto|manual|default NAME [NAME...]  change it in every installed CLI (NAME can be `all`)
+  aw skills always|manual workflow             load the workflow into every session, or only when invoked
   aw models                                    show each role's model, effort, and speed
   aw models set ROLE ENTRY [ENTRY...]          change a role, e.g. `aw models set bug_fix opus:high`
   aw limits                                    show plan usage limits
@@ -51,6 +52,8 @@ DEFAULTS = tomllib.loads((PACKAGE / "config" / "invocation.toml").read_text())
 BEGIN, END = "<!-- agent-workflows:begin -->", "<!-- agent-workflows:end -->"
 MANUAL = re.compile(r"^disable-model-invocation:\s*(true|false)\s*\n", re.M)
 LEGACY_BINS = ["aw-limits"]
+# Only the workflow can be always on, because the installer's instructions block loads exactly that skill.
+ALWAYS_CAPABLE = {"workflow"}
 
 
 def load(path, default):
@@ -84,13 +87,13 @@ def package_mode(name):
 
 
 def modes():
-    """Package defaults with the user's overrides from skills.toml on top. An always-on skill can only become manual."""
+    """Package defaults with the user's overrides from skills.toml on top."""
     choices = load(CHOICES, {})
     result = {}
     for name in available():
         result[name] = package_mode(name)
-        for mode in ("auto", "manual"):
-            if name in choices.get(mode, []) and (result[name] != "always" or mode == "manual"):
+        for mode in ("auto", "manual", "always"):
+            if name in choices.get(mode, []):
                 result[name] = mode
     return result
 
@@ -296,24 +299,26 @@ def command_skills(args):
                 changed = " (changed)" if mode != package_mode(name) else ""
                 print(f"  {name}{changed}")
         print("\nChange with `aw skills auto|manual NAME` (or `all`), or `aw skills default NAME` to undo.\n"
-              "`aw skills manual workflow` turns off the always-on workflow, so you invoke it per task as /workflow.")
+              "`aw skills always workflow` loads the workflow into every session. `aw skills manual workflow` undoes it.")
         return
     if args.names == ["all"]:
-        args.names = [name for name in available() if package_mode(name) != "always"]
+        args.names = [name for name in available() if name not in ALWAYS_CAPABLE]
     unknown = sorted(set(args.names) - set(available()))
     if unknown:
         sys.exit("aw: unknown skills: " + ", ".join(unknown))
-    pinned = [name for name in args.names if package_mode(name) == "always" and args.mode == "auto"]
-    if pinned:
-        sys.exit(f"aw: {', '.join(pinned)} is always on or manual. Use `aw skills manual` or `aw skills default`.")
+    if args.mode == "always" and set(args.names) - ALWAYS_CAPABLE:
+        sys.exit("aw: only the workflow can be always on")
+    if args.mode == "auto" and set(args.names) & ALWAYS_CAPABLE:
+        sys.exit("aw: the workflow is either always on or manual. Use `aw skills always workflow` or `aw skills manual workflow`.")
     choices = load(CHOICES, {})
-    lists = {mode: [name for name in choices.get(mode, []) if name not in args.names] for mode in ("auto", "manual")}
+    lists = {mode: [name for name in choices.get(mode, []) if name not in args.names] for mode in ("auto", "manual", "always")}
     if args.mode != "default":
         lists[args.mode] += [name for name in args.names if package_mode(name) != args.mode]
     CONFIG.mkdir(parents=True, exist_ok=True)
-    CHOICES.write_text("# Your skill invocation overrides. Change with `aw skills auto|manual|default NAME`.\n"
+    CHOICES.write_text("# Your skill invocation overrides. Change with `aw skills auto|manual|always|default NAME`.\n"
                        f"auto = {toml_list(sorted(lists['auto']))}\n"
-                       f"manual = {toml_list(sorted(lists['manual']))}\n")
+                       f"manual = {toml_list(sorted(lists['manual']))}\n"
+                       f"always = {toml_list(sorted(lists['always']))}\n")
     state = installs()
     for runtime in state["runtimes"]:
         installed = [name for name in args.names if str(RUNTIMES[runtime]["root"] / "skills" / name) in state["files"]]
@@ -485,7 +490,7 @@ def main():
     uninstall.add_argument("--runtime", choices=list(RUNTIMES), help="only this CLI")
     uninstall.set_defaults(run=command_uninstall)
     skills = commands.add_parser("skills", help="list or change skill invocation")
-    skills.add_argument("mode", nargs="?", choices=["auto", "manual", "default"])
+    skills.add_argument("mode", nargs="?", choices=["auto", "manual", "always", "default"])
     skills.add_argument("names", nargs="*")
     skills.set_defaults(run=command_skills)
     models = commands.add_parser("models", help="show or change role models")
@@ -496,7 +501,7 @@ def main():
     commands.add_parser("limits", help="show plan usage limits").set_defaults(run=command_limits)
     args = parser.parse_args()
     if args.command == "skills" and bool(args.mode) != bool(args.names):
-        parser.error("use `aw skills`, or `aw skills auto|manual|default NAME...`")
+        parser.error("use `aw skills`, or `aw skills auto|manual|always|default NAME...`")
     if args.command == "models" and args.action and not (args.role and args.entries):
         parser.error("use `aw models set ROLE ENTRY [ENTRY...]`")
     args.run(args)

@@ -34,7 +34,7 @@ Skills and plugins from other Cursor packages (`cursor-team-kit`'s `deslop`, `co
 
 ## Renamed
 
-The workflow is always on, not a mode the user invokes. `poteto-mode` is `workflow`, `poteto-agent` is `delegate`, and `poteto-help` is `pstack-help`. Passages that told the user to start a task with `/poteto-mode` now say the workflow skill is already active. Upstream text otherwise keeps its wording.
+The workflow is manual by default, as upstream's `poteto-mode` is, and `aw skills always workflow` loads it into every session. `poteto-mode` is `workflow`, `poteto-agent` is `delegate`, and `poteto-help` is `pstack-help`. Passages that told the user to start a task with `/poteto-mode` now name `/workflow`, or the always-on setting. Upstream text otherwise keeps its wording.
 
 ## Added
 

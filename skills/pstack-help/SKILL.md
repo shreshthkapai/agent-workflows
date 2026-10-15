@@ -1,6 +1,6 @@
 ---
 name: pstack-help
-description: Guides users through pstack setup, the always-on workflow, and picking the skill, playbook, or principle for a task. Type /pstack-help with a question.
+description: Guides users through pstack setup, the workflow skill, and picking the skill, playbook, or principle for a task. Type /pstack-help with a question.
 disable-model-invocation: true
 ---
 
@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Answer the user's question about pstack, hand them a prompt they can send, and link the file the answer came from. For a help question, don't start the work. The user asked how, and a pstack run spends real tokens, so let them send the prompt.
 
-A message that asks for work, such as "use pstack to fix this bug", is not a help question. Do the work under the [`workflow`](../workflow/SKILL.md) skill, which is already active.
+A message that asks for work, such as "use pstack to fix this bug", is not a help question. Do the work under the [`workflow`](../workflow/SKILL.md) skill. Load it first if the session does not already have it.
 
 This file maps questions to the skills and guide pages that hold the answers. Those files own the details. Read the file you route to before you quote it, and trust it when it disagrees with this map. The skill links here point into the installed skills, so give the user the installed file's absolute path. The README and guide pages are not installed, so give the user their upstream public copy: `https://github.com/cursor/plugins/blob/main/pstack/` followed by its path. The guide describes Cursor, so say which steps differ in this CLI.
 
@@ -36,9 +36,9 @@ When the model registry is missing or still the default and it matters, ask whet
 
 1. Install with this package's `install.py`. It installs into every CLI it finds among Claude Code, Codex, and Grok, and puts `aw` on the `PATH`.
 2. Run [`/setup-pstack`](../setup-pstack/SKILL.md). It asks for a reasoning budget, maps a model to each role, and writes the model registry. The registry applies from the next spawn.
-3. Start a real task with a goal and a check that can pass or fail. The installer loads the workflow skill into every session, so no command is needed.
+3. Start a real task with a goal and a check that can pass or fail. Type `/workflow` (`$workflow` in Codex) before it, or run `aw skills always workflow` once so every session loads the workflow.
 
-Installing loads the workflow skill into every session. Auto skills load on their own when a task matches, and manual ones wait for the user or a workflow step. `aw skills` lists which is which, and `aw skills auto|manual NAME` changes one. The [README](https://github.com/cursor/plugins/blob/main/pstack/README.md) and [guide page 1](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/01-setup.md) have the details. Offer to word their first prompt with them, per [`references/prompting.md`](references/prompting.md).
+Installing changes nothing until a skill runs. Auto skills load on their own when a task matches, and manual ones wait for the user or a workflow step. The workflow is manual unless the user runs `aw skills always workflow`. `aw skills` lists which is which, and `aw skills auto|manual NAME` changes one. The [README](https://github.com/cursor/plugins/blob/main/pstack/README.md) and [guide page 1](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/01-setup.md) have the details. Offer to word their first prompt with them, per [`references/prompting.md`](references/prompting.md).
 
 If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models, or change one role with `aw models set ROLE model:effort`. `aw limits` shows how much of each plan is left. A role set to `inherit` runs on the session's model, which saves tokens when the session runs on a cheaper model. Each model's `provider` decides which subscription pays, so moving a busy role to the other provider spreads the load. A shorter panel list runs fewer subagents, one for each entry. Ask for a lighter pass when a task doesn't need the full playbook.
 
@@ -48,7 +48,7 @@ This is pstack ported from Cursor to Claude Code, Codex, and Grok. The workflow 
 
 The workflow skill matches the task to a playbook, copies the playbook's steps into the todo list, and runs the other skills as the steps need them. A step it skips stays in the list as `skip: <reason>`. A good prompt states the goal and how to tell it's done. It doesn't list skills, because a hand-written sequence tends to drop or reorder steps the playbook would keep. Read [`references/prompting.md`](references/prompting.md) before you help word one. [Guide page 2](https://github.com/cursor/plugins/blob/main/pstack/docs/guide/02-poteto-mode.md) has examples.
 
-The installer imports the workflow skill into the CLI's global instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md`), so it applies to every session and does not fade. Mid-chat, "new task" makes it match a fresh playbook. It already uses `delegate` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, spawn the `delegate` agent.
+`aw skills always workflow` imports the workflow skill into the CLI's global instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md`), so it applies to every session and does not fade. Without it, `/workflow` at the start of a task loads it for that chat. Mid-chat, "new task" makes it match a fresh playbook. It already uses `delegate` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, spawn the `delegate` agent.
 
 ## Pick a skill
 
@@ -56,7 +56,7 @@ The default answer is to describe the task. The workflow skill runs most of the 
 
 | The user wants to | Skill |
 |---|---|
-| Do any non-trivial task with rigor | Describe it. The [`workflow`](../workflow/SKILL.md) skill is always on |
+| Do any non-trivial task with rigor | Type [`/workflow`](../workflow/SKILL.md) and describe it, or just describe it when the workflow is always on |
 | Check that the agent understood their goal and the problem before it starts | [`/in-your-own-words`](../in-your-own-words/SKILL.md) |
 | Aim a task higher before starting: more expert, more outcome-focused, not overspecified | [`/sharpen`](../sharpen/SKILL.md) |
 | Know how code works now, or where new code should live | [`/how`](../how/SKILL.md) |
