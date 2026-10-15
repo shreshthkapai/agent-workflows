@@ -84,15 +84,14 @@ def package_mode(name):
 
 
 def modes():
-    """Package defaults with the user's overrides from skills.toml on top. `always` cannot be overridden."""
+    """Package defaults with the user's overrides from skills.toml on top. An always-on skill can only become manual."""
     choices = load(CHOICES, {})
     result = {}
     for name in available():
         result[name] = package_mode(name)
-        if result[name] != "always":
-            for mode in ("auto", "manual"):
-                if name in choices.get(mode, []):
-                    result[name] = mode
+        for mode in ("auto", "manual"):
+            if name in choices.get(mode, []) and (result[name] != "always" or mode == "manual"):
+                result[name] = mode
     return result
 
 
@@ -168,7 +167,8 @@ def plan(runtime, names):
     for agent in sorted(AGENTS.glob("*.md")):
         files[root / "agents" / (agent.stem + suffix)] = ("agent", agent, None)
     if "workflow" in names:
-        files[root / spec["host"]] = ("instructions", instructions_block(runtime, root / "skills" / "workflow" / "SKILL.md"), None)
+        block = instructions_block(runtime, root / "skills" / "workflow" / "SKILL.md") if mode["workflow"] == "always" else None
+        files[root / spec["host"]] = ("instructions", block, None)
     return files
 
 
@@ -190,7 +190,7 @@ def write(path, kind, source, manual, runtime):
     elif kind == "agent":
         path.write_text(render_agent(source.read_text(), runtime))
     elif kind == "instructions":
-        write_block(path, source)
+        write_block(path, source) if source else remove_block(path)
 
 
 def bins():
@@ -295,14 +295,17 @@ def command_skills(args):
             for name in names:
                 changed = " (changed)" if mode != package_mode(name) else ""
                 print(f"  {name}{changed}")
-        print("\nChange with `aw skills auto|manual NAME`, or `aw skills default NAME` to undo.")
+        print("\nChange with `aw skills auto|manual NAME` (or `all`), or `aw skills default NAME` to undo.\n"
+              "`aw skills manual workflow` turns off the always-on workflow, so you invoke it per task as /workflow.")
         return
+    if args.names == ["all"]:
+        args.names = [name for name in available() if package_mode(name) != "always"]
     unknown = sorted(set(args.names) - set(available()))
     if unknown:
         sys.exit("aw: unknown skills: " + ", ".join(unknown))
-    pinned = [name for name in args.names if package_mode(name) == "always"]
+    pinned = [name for name in args.names if package_mode(name) == "always" and args.mode == "auto"]
     if pinned:
-        sys.exit(f"aw: {', '.join(pinned)} is always on and cannot change")
+        sys.exit(f"aw: {', '.join(pinned)} is always on or manual. Use `aw skills manual` or `aw skills default`.")
     choices = load(CHOICES, {})
     lists = {mode: [name for name in choices.get(mode, []) if name not in args.names] for mode in ("auto", "manual")}
     if args.mode != "default":
@@ -315,7 +318,7 @@ def command_skills(args):
     for runtime in state["runtimes"]:
         installed = [name for name in args.names if str(RUNTIMES[runtime]["root"] / "skills" / name) in state["files"]]
         for path, (kind, source, manual) in plan(runtime, installed).items():
-            if kind == "skill":
+            if kind in ("skill", "instructions"):
                 write(path, kind, source, manual, runtime)
     current = modes()
     print("\n".join(f"{name}: {current[name]}" for name in args.names))

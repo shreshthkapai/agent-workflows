@@ -68,7 +68,7 @@ The shipped registry works with any mix of plans. If a model's CLI is not instal
 
 ## Choose auto or manual skills
 
-The `workflow` skill is always on. The model loads an auto skill on its own when a task matches the skill's description. A manual skill runs only when you invoke it, as `/name` in Claude Code and Grok or `$name` in Codex, or when a workflow step calls it.
+By default the `workflow` skill is always on, so every task follows its playbooks without a command. The model loads an auto skill on its own when a task matches the skill's description. A manual skill runs only when you invoke it, as `/name` in Claude Code and Grok or `$name` in Codex, or when a workflow step calls it.
 
 ```sh
 aw skills                      # every skill and its mode
@@ -76,6 +76,15 @@ aw skills auto reflect         # the model may load it on its own
 aw skills manual swarm arena   # only when invoked or called by the workflow
 aw skills default swarm        # back to the package default
 ```
+
+Upstream pstack works the other way. Its workflow is manual, so you start each task with `/poteto-mode`, and almost every other skill is manual too. To work that way:
+
+```sh
+aw skills manual workflow      # no always-on block; type /workflow ($workflow in Codex) to use it
+aw skills manual all           # every other skill manual as well
+```
+
+`aw skills default workflow` and `aw skills default all` undo these. The always-on workflow adds about 5k tokens of instructions to every session, and each auto skill adds its one-line description. A manual skill adds nothing until it runs.
 
 `aw skills` changes every installed CLI at once and saves your choices in `~/.config/agent-workflows/skills.toml`, so updates keep them. The package defaults are in `config/invocation.toml`.
 
