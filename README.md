@@ -21,6 +21,15 @@ Update:
 cd ~/agent-workflows && git pull && aw install
 ```
 
+The `nightly` branch carries skills that have not reached `main` yet, such as `/upstream`. Install it the same way from that branch, and the update command above follows it:
+
+```sh
+git clone -b nightly https://github.com/shreshthkapai/agent-workflows.git ~/agent-workflows
+~/agent-workflows/install.py
+```
+
+To switch an existing checkout, run `cd ~/agent-workflows && git switch nightly && aw install`.
+
 Remove everything the installer added. Your model and skill settings stay.
 
 ```sh
