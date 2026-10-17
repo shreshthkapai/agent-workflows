@@ -5,6 +5,9 @@
 # ~/.grok/AGENTS.md). Empty by default, as in upstream: invoke /workflow per task, or run `aw skills always workflow`.
 always = []
 
+# Skills from outside pstack that ship without a manual flag. Manual unless the user opts in.
+manual = ["json-canvas", "obsidian-bases", "obsidian-cli", "obsidian-markdown"]
+
 # The model may load these on its own. Every other skill is manual.
 auto = [
   "arena",

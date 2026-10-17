@@ -81,6 +81,8 @@ def available():
 def package_mode(name):
     if name in DEFAULTS["always"]:
         return "always"
+    if name in DEFAULTS["manual"]:
+        return "manual"
     match = MANUAL.search(frontmatter((SKILLS / name / "SKILL.md").read_text())[0])
     upstream_manual = bool(match) and match.group(1) == "true"
     return "auto" if name in DEFAULTS["auto"] or not upstream_manual else "manual"

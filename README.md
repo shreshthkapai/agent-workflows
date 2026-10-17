@@ -106,6 +106,14 @@ aw skills default swarm        # back to the package default (`all` works here t
 
 `/upstream` (`$upstream` in Codex) summarizes what changed in pstack since this port last imported it. It lists new and removed skills, says what each changed skill gained, lost, or cut, and recommends which changes to pull. It also checks poteto's `plugins` fork. It only reports and never edits the port.
 
+## Obsidian skills
+
+`obsidian-markdown`, `obsidian-bases`, `json-canvas`, and `obsidian-cli` come unchanged from Steph Ango's [obsidian-skills](https://github.com/kepano/obsidian-skills). They write Obsidian notes, Bases, and Canvas files, and drive the Obsidian CLI. They are manual by default. To let the model load them on its own when you work in a vault:
+
+```sh
+aw skills auto obsidian-markdown obsidian-bases json-canvas obsidian-cli
+```
+
 ## How a subagent reaches another provider
 
 A skill looks up a role with `aw-run --resolve <role>`. If the role's model belongs to the CLI you are in, the lead spawns a native subagent with that model and effort. If not, it runs `aw-run <role> < brief.md`, which starts `claude -p`, `codex exec`, or `grok --prompt-file` in headless mode and returns the final message.
