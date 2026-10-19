@@ -1,6 +1,6 @@
 # Porting pstack to Claude Code, Codex, and Grok
 
-The skills are [pstack](https://github.com/cursor/plugins/tree/main/pstack) verbatim, except where a passage needs Cursor. Commit `22880ab` imports upstream unchanged, so `git diff 22880ab -- skills agents` is the full list of porting edits. Re-sync the same way: import upstream verbatim in one commit, then reapply these rules in the next.
+The skills are [pstack](https://github.com/cursor/plugins/tree/main/pstack) verbatim, except where a passage needs Cursor. Commit `22880ab` imports upstream unchanged, so `git diff 22880ab -- skills agents` is the full list of porting edits. Commit `c411450` re-imports the skills that changed up to cursor/plugins@d457567, without the skills upstream added, so diff those skills against `c411450` instead. Re-sync the same way: import upstream verbatim in one commit, then reapply these rules in the next.
 
 ## Rule
 

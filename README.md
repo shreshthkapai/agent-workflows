@@ -126,4 +126,4 @@ A skill looks up a role with `aw-run --resolve <role>`. If the role's model belo
 
 ## Upstream
 
-`PORTING.md` lists every change from upstream. Commit `22880ab` is upstream verbatim, so `git diff 22880ab -- skills agents` shows each porting edit. Upstream's [guide](https://github.com/cursor/plugins/tree/main/pstack/docs/guide) explains the workflows. Its Cursor UI steps do not apply here.
+`PORTING.md` lists every change from upstream. Commits `22880ab` and `c411450` are upstream verbatim, and `PORTING.md` says which one to diff a skill against to see its porting edits. Upstream's [guide](https://github.com/cursor/plugins/tree/main/pstack/docs/guide) explains the workflows. Its Cursor UI steps do not apply here.
