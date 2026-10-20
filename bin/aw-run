@@ -61,8 +61,9 @@ def claude_parse(result, files):
 
 def codex_command(choice, read_only, cwd, files):
     tier = ["-c", 'service_tier="priority"'] if choice["speed"] == "fast" else []
+    network = [] if read_only else ["-c", "sandbox_workspace_write.network_access=true"]
     return ["codex", "exec", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"', *tier,
-            "-s", "read-only" if read_only else "workspace-write", "-C", str(cwd), "--skip-git-repo-check", "--json",
+            "-s", "read-only" if read_only else "workspace-write", *network, "-C", str(cwd), "--skip-git-repo-check", "--json",
             "-o", files["message"]]
 
 
