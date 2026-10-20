@@ -100,6 +100,7 @@ A skill looks up a role with `aw-run --resolve <role>`. If the role's model belo
 - `aw-run` tells each child that it is the lead's delegate, so the child does its task and does not start its own playbook.
 - `--shift -2` lowers effort two steps for routine work, and `--shift 1` raises it one step for the hardest work.
 - `--read-only` runs Claude in plan mode and Codex and Grok in their read-only sandboxes.
+- Writable Codex jobs enable network access within the `workspace-write` sandbox, including localhost servers and browser checks.
 - No CLI runs with a permission or sandbox bypass flag.
 - `aw-run` appends each call to `~/.local/state/agent-workflows/runs.jsonl` with its role, provider, model, effort, duration, and token usage.
 
