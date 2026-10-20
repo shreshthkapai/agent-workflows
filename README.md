@@ -118,7 +118,7 @@ aw skills auto obsidian-markdown obsidian-bases json-canvas obsidian-cli
 
 A skill looks up a role with `aw-run --resolve <role>`. If the role's model belongs to the CLI you are in, the lead spawns a native subagent with that model and effort. If not, it runs `aw-run <role> < brief.md`, which starts `claude -p`, `codex exec`, or `grok --prompt-file` in headless mode and returns the final message.
 
-- `aw-run` tells each child that it is the lead's delegate, so the child does its task and does not start its own playbook.
+- `aw-run` tells each child that it is the lead's delegate, so the child does its task and does not start its own playbook. `--agent NAME` runs the child as another installed agent, as `no-comments` does with `comment-sicko`.
 - `--shift -2` lowers effort two steps for routine work, and `--shift 1` raises it one step for the hardest work.
 - `--read-only` runs Claude in plan mode and Codex and Grok in their read-only sandboxes.
 - No CLI runs with a permission or sandbox bypass flag.

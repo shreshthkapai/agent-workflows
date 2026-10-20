@@ -24,7 +24,7 @@ EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 BUDGETS = {"unlimited": "max", "large": "xhigh", "medium": "high", "small": "medium"}
 LIMIT = re.compile(r"usage limit|rate limit|limit reached|quota|too many requests|\b429\b", re.I)
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-workflows" / "models.toml"
-CODEX_DELEGATE = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "agents" / "delegate.toml"
+CODEX_AGENTS = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "agents"
 # The always-on workflow tells every session to run a playbook, so a child must hear it is the lead's delegate.
 DELEGATE = ("You are the delegate of a lead session in another CLI, which started you through `aw-run` to do the task "
             "below and return the result. The lead owns the playbook, the todo list, and every subagent spawn. Do the task "
@@ -49,7 +49,7 @@ def last_usage(events):
 
 
 def claude_command(choice, read_only, cwd, files):
-    return ["claude", "-p", "--agent", "delegate", "--model", choice["model"], "--effort", choice["effort"],
+    return ["claude", "-p", "--agent", choice["agent"], "--model", choice["model"], "--effort", choice["effort"],
             "--permission-mode", "plan" if read_only else "auto", "--output-format", "json"]
 
 
@@ -66,15 +66,16 @@ def codex_command(choice, read_only, cwd, files):
             "-o", files["message"]]
 
 
-def delegate_brief(brief):
+def delegate_brief(brief, agent):
     return DELEGATE + brief
 
 
-def codex_brief(brief):
+def codex_brief(brief, agent):
     # `codex exec` cannot select an agent, and Codex labels every session `/root`.
-    if not CODEX_DELEGATE.is_file():
-        sys.exit(f"aw-run: no delegate agent at {CODEX_DELEGATE}; run `aw install --runtime codex`")
-    instructions = tomllib.loads(CODEX_DELEGATE.read_text())["developer_instructions"]
+    path = CODEX_AGENTS / f"{agent}.toml"
+    if not path.is_file():
+        sys.exit(f"aw-run: no {agent} agent at {path}; run `aw install --runtime codex`")
+    instructions = tomllib.loads(path.read_text())["developer_instructions"]
     return DELEGATE.replace("You are", "Codex labels every session `/root`, but you are", 1) + instructions + "\n---\n\n" + brief
 
 
@@ -84,7 +85,7 @@ def codex_parse(result, files):
 
 def grok_command(choice, read_only, cwd, files):
     # Grok's headless mode does not read stdin, so the brief goes through --prompt-file.
-    return ["grok", "--prompt-file", files["prompt"], "--agent", "delegate", "-m", choice["model"], "--effort", choice["effort"],
+    return ["grok", "--prompt-file", files["prompt"], "--agent", choice["agent"], "-m", choice["model"], "--effort", choice["effort"],
             "--sandbox", "read-only" if read_only else "workspace",
             "--permission-mode", "dontAsk" if read_only else "auto",
             "--cwd", str(cwd), "--output-format", "json"]
@@ -176,7 +177,7 @@ def resolve(registry, role, shift):
 
 def run(choice, brief, read_only, cwd):
     provider = PROVIDERS[choice["provider"]]
-    brief = provider["brief"](brief)
+    brief = provider["brief"](brief, choice["agent"])
     with tempfile.TemporaryDirectory(prefix="aw-run-") as scratch:
         files = {"message": str(Path(scratch) / "message.md"), "prompt": str(Path(scratch) / "prompt.md")}
         Path(files["message"]).touch()
@@ -207,6 +208,7 @@ def main():
     parser.add_argument("--read-only", action="store_true", help="run in the CLI's read-only sandbox or plan mode")
     parser.add_argument("--cd", type=Path, default=Path.cwd(), help="working directory for the run")
     parser.add_argument("--out", type=Path, help="also write the final message here")
+    parser.add_argument("--agent", default="delegate", help="installed agent the child runs as")
     parser.add_argument("--no-fallback", action="store_true", help="fail instead of switching to a fallback")
     args = parser.parse_args()
     registry = load()
@@ -227,7 +229,7 @@ def main():
         entry = registry["models"][name]
         fast = seat["speed"] == "fast" and PROVIDERS[entry["provider"]].get("fast")
         choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"],
-                  "speed": "fast" if fast else "standard"}
+                  "speed": "fast" if fast else "standard", "agent": args.agent}
         text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
         log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index, "model_name": name,
              **choice, "read_only": args.read_only, "limited": limited,

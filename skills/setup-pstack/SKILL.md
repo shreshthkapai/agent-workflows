@@ -79,6 +79,7 @@ arena_cross_judge_pool = ["opus", "sol"]
 swarm_workers = "sol"
 architect_runners = ["opus", "sol"]
 interrogate_reviewers = ["opus", "sol"]
+comment_sicko = "sol"
 ```
 
 ### 6. Confirm
