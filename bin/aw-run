@@ -9,6 +9,7 @@ resolves to the first installed model in its fallback chain.
 """
 
 import argparse
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,7 @@ DELEGATE = ("You are the delegate of a lead session in another CLI, which starte
             "below and return the result. The lead owns the playbook, the todo list, and every subagent spawn. Do the task "
             "yourself. Do not spawn subagents, open a playbook todo list, or start a playbook.\n\n")
 LOG = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "agent-workflows" / "runs.jsonl"
+TURNS = LOG.with_name("pool-turns.json")
 
 
 def json_or(text, default):
@@ -49,7 +51,8 @@ def last_usage(events):
 
 
 def claude_command(choice, read_only, cwd, files):
-    return ["claude", "-p", "--agent", choice["agent"], "--model", choice["model"], "--effort", choice["effort"],
+    model = ["--model", choice["model"]] if choice["model"] else []
+    return ["claude", "-p", "--agent", choice["agent"], *model, "--effort", choice["effort"],
             "--permission-mode", "plan" if read_only else "auto", "--output-format", "json"]
 
 
@@ -155,12 +158,18 @@ def parse_seat(registry, role, value):
 
 
 def resolve(registry, role, shift):
+    """The role's seats, and whether they are a pool whose entries take turns."""
     if role not in registry.get("roles", {}):
         sys.exit(f"aw-run: unknown role {role!r}; roles: {', '.join(registry.get('roles', {}))}")
     value = registry["roles"][role]
+    pool = isinstance(value, dict)
+    if pool and (set(value) != {"pool"} or not isinstance(value["pool"], list) or not value["pool"]):
+        sys.exit(f"aw-run: role {role!r} table must be {{ pool = [entry, ...] }}")
     seats = []
-    for entry in value if isinstance(value, list) else [value]:
+    for entry in value["pool"] if pool else value if isinstance(value, list) else [value]:
         name, effort, speed = parse_seat(registry, role, entry)
+        if pool and name == "inherit":
+            sys.exit(f"aw-run: role {role!r} pool cannot hold inherit, because every pool turn runs through aw-run")
         effort = EFFORTS[min(max(EFFORTS.index(effort) + shift, 0), len(EFFORTS) - 1)]
         if name == "inherit":
             seats.append({"name": "inherit", "provider": "inherit", "model": None, "effort": None})
@@ -174,7 +183,22 @@ def resolve(registry, role, shift):
         if available[0] != name:
             seat["substituted_for"] = name
         seats.append(seat)
-    return seats
+    return seats, pool
+
+
+def take_turn(role, size):
+    """The pool entry this run takes. The lock gives parallel launches distinct turns."""
+    TURNS.parent.mkdir(parents=True, exist_ok=True)
+    with TURNS.open("a+") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        handle.seek(0)
+        turns = json_or(handle.read(), {})
+        turn = turns.get(role, 0)
+        turns[role] = turn + 1
+        handle.seek(0)
+        handle.truncate()
+        handle.write(json.dumps(turns))
+    return turn % size
 
 
 def run(choice, brief, read_only, cwd):
@@ -205,7 +229,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("role")
     parser.add_argument("--resolve", action="store_true", help="print the resolved model(s) and exit")
-    parser.add_argument("--index", type=int, default=0, help="panel seat to run, for list roles")
+    parser.add_argument("--index", type=int, help="panel seat to run, for list roles")
     parser.add_argument("--shift", type=int, default=0, help="effort steps from the budget level, e.g. -2 or 1")
     parser.add_argument("--read-only", action="store_true", help="run in the CLI's read-only sandbox or plan mode")
     parser.add_argument("--cd", type=Path, default=Path.cwd(), help="working directory for the run")
@@ -214,27 +238,38 @@ def main():
     parser.add_argument("--no-fallback", action="store_true", help="fail instead of switching to a fallback")
     args = parser.parse_args()
     registry = load()
-    seats = resolve(registry, args.role, args.shift)
+    seats, pool = resolve(registry, args.role, args.shift)
     if args.resolve:
-        print(json.dumps(seats if len(seats) > 1 else seats[0]))
+        print(json.dumps({"pool": seats} if pool else seats if len(seats) > 1 else seats[0]))
         return
-    if not 0 <= args.index < len(seats):
+    if pool and args.index is not None:
+        sys.exit(f"aw-run: role {args.role!r} is a pool whose entries take turns; drop --index")
+    index = args.index or 0
+    if not 0 <= index < len(seats):
         sys.exit(f"aw-run: role {args.role!r} has {len(seats)} seat(s)")
-    seat = seats[args.index]
-    if seat["provider"] == "inherit":
+    if seats[index]["provider"] == "inherit" and not os.environ.get("CLAUDECODE"):
         sys.exit("aw-run: this role inherits the parent model; spawn a native subagent instead")
     brief = sys.stdin.read()
     if not brief.strip():
         sys.exit("aw-run: pass the brief on stdin")
+    if pool:
+        index = take_turn(args.role, len(seats))
+    seat = seats[index]
+    if seat["provider"] == "inherit":
+        # Claude Code has no Agent tool, so an inherit seat runs headless on its default model at the session's effort.
+        effort = os.environ.get("CLAUDE_EFFORT")
+        effort = effort if effort in EFFORTS else BUDGETS[registry.get("budget", "large")]
+        seat = {**seat, "provider": "claude", "effort": EFFORTS[min(max(EFFORTS.index(effort) + args.shift, 0), 4)],
+                "speed": "standard", "fallbacks": []}
     attempts = [seat["name"]] + ([] if args.no_fallback else seat["fallbacks"])
     for attempt, name in enumerate(attempts):
-        entry = registry["models"][name]
+        entry = seat if name == "inherit" else registry["models"][name]
         fast = seat["speed"] == "fast" and PROVIDERS[entry["provider"]].get("fast")
         choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"],
                   "speed": "fast" if fast else "standard", "agent": args.agent}
         text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
-        log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": args.index, "model_name": name,
-             **choice, "read_only": args.read_only, "limited": limited,
+        log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": index, "model_name": name,
+             **choice, "read_only": args.read_only, "limited": limited, **({"pool": True} if pool else {}),
              **({"fallback_from": attempts[attempt - 1]} if attempt else {}), **outcome})
         if not limited or attempt == len(attempts) - 1:
             break

@@ -51,7 +51,7 @@ RUNTIMES = {
 DEFAULTS = tomllib.loads((PACKAGE / "config" / "invocation.toml").read_text())
 BEGIN, END = "<!-- agent-workflows:begin -->", "<!-- agent-workflows:end -->"
 MANUAL = re.compile(r"^disable-model-invocation:\s*(true|false)\s*\n", re.M)
-LEGACY_BINS = ["aw-limits"]
+LEGACY_BINS = ["aw-limits", "aw-route"]
 # Only the workflow can be always on, because the installer's instructions block loads exactly that skill.
 ALWAYS_CAPABLE = {"workflow"}
 
@@ -158,6 +158,7 @@ def save_installs(state):
     CONFIG.mkdir(parents=True, exist_ok=True)
     INSTALLS.write_text("# Written by `aw install`. Lists what it installed, so updates and uninstall touch only these.\n"
                         f"runtimes = {toml_list(sorted(state['runtimes']))}\n"
+                        f"agent_deny = {json.dumps(bool(state.get('agent_deny')))}\n"
                         "files = [\n" + "".join(f"  {json.dumps(path)},\n" for path in sorted(set(state["files"]))) + "]\n")
 
 
@@ -199,33 +200,46 @@ def write(path, kind, source, manual, runtime):
 
 
 def bins():
-    """`aw` links back to this checkout so it can reinstall from it. `aw-run` and `aw-route` are standalone copies."""
-    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run"),
-            BIN / "aw-route": ("copy", PACKAGE / "bin" / "aw-route")}
+    """`aw` links back to this checkout so it can reinstall from it. `aw-run` is a standalone copy."""
+    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run")}
 
 
-def route_hook(install):
-    """Add or remove the PreToolUse entry that runs `aw-route` on Claude Code subagent spawns."""
+def sync_agent_tool(state):
+    """Deny Claude Code's Agent tool while the workflow is always on there, which hides the tool, so every subagent
+    starts through `aw-run` on its role's model. Lift the deny otherwise, but only if aw added it."""
     path = RUNTIMES["claude"]["root"] / "settings.json"
     try:
         settings = json.loads(path.read_text()) if path.is_file() else {}
     except json.JSONDecodeError:
-        print(f"aw: {path} is not valid JSON, so the subagent routing hook was not {'added' if install else 'removed'}.")
+        print(f"aw: {path} is not valid JSON, so the Agent tool setting was not changed.")
         return
-    command = str(BIN / "aw-route")
-    entries = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
-    kept = [entry for entry in entries if not any(hook.get("command") == command for hook in entry.get("hooks", []))]
-    if install:
-        kept.append({"matcher": "Agent|Task", "hooks": [{"type": "command", "command": command, "timeout": 10}]})
-    if kept == entries:
-        return
-    settings["hooks"]["PreToolUse"] = kept
-    if not kept:
-        del settings["hooks"]["PreToolUse"]
-    if not settings["hooks"]:
-        del settings["hooks"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    before = json.dumps(settings)
+    hooks = settings.get("hooks", {})
+    # Installs before the Agent tool was turned off routed spawns through an `aw-route` hook.
+    entries = hooks.get("PreToolUse", [])
+    kept = [entry for entry in entries
+            if not any(hook.get("command") == str(BIN / "aw-route") for hook in entry.get("hooks", []))]
+    if len(kept) < len(entries):
+        hooks["PreToolUse"] = kept
+        if not kept:
+            del hooks["PreToolUse"]
+            if not hooks:
+                del settings["hooks"]
+    deny = settings.get("permissions", {}).get("deny", [])
+    if "claude" in state["runtimes"] and modes()["workflow"] == "always":
+        if "Agent" not in deny:
+            settings.setdefault("permissions", {}).setdefault("deny", []).append("Agent")
+            state["agent_deny"] = True
+    elif "Agent" in deny and state.get("agent_deny"):
+        deny.remove("Agent")
+        if not deny:
+            del settings["permissions"]["deny"]
+            if not settings["permissions"]:
+                del settings["permissions"]
+        state["agent_deny"] = False
+    if json.dumps(settings) != before:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
 
 
 def conflicts(paths, owned, force):
@@ -263,7 +277,8 @@ def command_install(args):
         for path, (how, source) in bins().items():
             print(f"{'':6} {how}  {path} -> {source}" if how == "link" else f"{'':6} write {path}")
         if "claude" in runtimes:
-            print(f"claude hook  {RUNTIMES['claude']['root'] / 'settings.json'} PreToolUse -> {BIN / 'aw-route'}")
+            print(f"claude deny  {RUNTIMES['claude']['root'] / 'settings.json'} permissions.deny Agent, "
+                  "while the workflow is always on")
         return
     for path, (runtime, kind, source, manual) in files.items():
         write(path, kind, source, manual, runtime)
@@ -283,12 +298,11 @@ def command_install(args):
         if str(BIN / name) in state["files"] or (BIN / name).is_file():
             (BIN / name).unlink(missing_ok=True)
             state["files"] = [path for path in state["files"] if path != str(BIN / name)]
-    if "claude" in runtimes:
-        route_hook(install=True)
     if not REGISTRY.exists():  # Never overwrite the user's model choices.
         CONFIG.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PACKAGE / "config" / "models.toml", REGISTRY)
     state["runtimes"] = sorted(set(state["runtimes"]) | set(runtimes))
+    sync_agent_tool(state)
     save_installs(state)
     counts = {mode: sum(1 for name in names if modes()[name] == mode) for mode in ("always", "auto", "manual")}
     print(f"Installed {len(names)} skills ({counts['always']} always on, {counts['auto']} auto, {counts['manual']} manual) "
@@ -304,8 +318,6 @@ def command_uninstall(args):
     for runtime in runtimes:
         root = RUNTIMES[runtime]["root"]
         remove_block(root / RUNTIMES[runtime]["host"])
-        if runtime == "claude":
-            route_hook(install=False)
         for path in [Path(path) for path in state["files"] if Path(path).is_relative_to(root)]:
             if path.is_dir():
                 shutil.rmtree(path)
@@ -313,6 +325,7 @@ def command_uninstall(args):
                 path.unlink(missing_ok=True)
             state["files"].remove(str(path))
     state["runtimes"] = [runtime for runtime in state["runtimes"] if runtime not in runtimes]
+    sync_agent_tool(state)
     if not state["runtimes"]:
         for path in bins():
             path.unlink(missing_ok=True)
@@ -358,6 +371,9 @@ def command_skills(args):
         for path, (kind, source, manual) in plan(runtime, installed).items():
             if kind in ("skill", "instructions"):
                 write(path, kind, source, manual, runtime)
+    if "workflow" in args.names and state["runtimes"]:
+        sync_agent_tool(state)
+        save_installs(state)
     current = modes()
     print("\n".join(f"{name}: {current[name]}" for name in args.names))
     if state["runtimes"]:
@@ -374,6 +390,8 @@ def resolve(role, registry_path=None):
     if result.returncode:
         return None, result.stderr.strip()
     seats = json.loads(result.stdout)
+    if isinstance(seats, dict) and "pool" in seats:
+        return [{**seat, "pool": True} for seat in seats["pool"]], None
     return (seats if isinstance(seats, list) else [seats]), None
 
 
@@ -412,7 +430,7 @@ def command_models(args):
             note = f" (for {seat['substituted_for']})" if seat.get("substituted_for") else ""
             speed = " fast" if seat.get("speed") == "fast" else ""
             described.append(f"{seat['model']} @ {seat['effort']}{speed} [{seat['provider']}]{note}")
-        print(f"{role:{width}}  {', '.join(described)}")
+        print(f"{role:{width}}  {'in turn: ' if seats[0].get('pool') else ''}{', '.join(described)}")
     if args.action != "set":
         print(f"\nChange a role with `aw models set ROLE model[:effort][:fast]`. Models are defined in {REGISTRY}.")
 

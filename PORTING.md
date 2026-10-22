@@ -10,7 +10,7 @@ Keep every sentence that works in a terminal CLI. Change a passage only when it 
 
 | Upstream (Cursor) | Port |
 | --- | --- |
-| `Task` tool, `Task` call, Task spawn | subagent, spawn a subagent. Native tool in the current CLI, `aw-run` for another provider, per the Subagents section of **workflow** |
+| `Task` tool, `Task` call, Task spawn | subagent, spawn a subagent. `aw-run` in Claude Code, and in Codex or Grok the native tool for that CLI's models and `aw-run` for another provider, per the Subagents section of **workflow** |
 | `run_in_background: true` | in the background |
 | `subagent_type: generalPurpose` | a general-purpose subagent |
 | `subagent_type: "poteto-agent"` | the `delegate` agent |
@@ -42,7 +42,8 @@ The workflow is manual by default, as upstream's `poteto-mode` is, and `aw skill
 - `limits` and `upstream`, manual skills with no upstream counterpart. `upstream` reports what changed in pstack since the last `Import upstream pstack verbatim` commit.
 - `create-formal-verification-skill` names the project skill folder of each CLI, as `create-verification-skill` does. Upstream says only "project-local".
 - The `comment_sicko` role, so `no-comments` runs Comment Sicko on a set model. Upstream spawns it on the parent's model. `aw-run --agent` starts the child as an installed agent other than `delegate`.
-- `aw-route`, a Claude Code hook, and the workflow's `Role:` line. A Claude lead that skipped `aw-run --resolve` spawned code delegates on its own model, so Codex roles ran on Claude. Upstream needs no gate, because Cursor's Task tool takes any model.
+- With the workflow always on, `aw install` turns off Claude Code's Agent tool, and the workflow runs every Claude Code subagent through `aw-run`. A Claude lead that skipped `aw-run --resolve`, or picked a built-in agent type, spawned subagents on Claude, so Codex roles ran there. Upstream needs no gate, because Cursor's Task tool takes any model.
+- Pool roles, `{ pool = [...] }` in `models.toml`. Each spawn takes the next entry in turn, so a role such as `judgment_prose` can split its helpers between Codex and Claude. Upstream roles are one model or a panel.
 - `delegate`, and the workflow's Playbooks section, say a delegate does its task itself, and that playbooks and subagent spawns are the lead's. Upstream relies on Cursor subagents being unable to act as leads. Here a native subagent or an `aw-run` child read the always-on workflow and ran playbooks.
 
 ## Removed

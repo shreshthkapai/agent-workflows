@@ -43,7 +43,7 @@ Installing changes nothing until a skill runs. Auto skills load on their own whe
 
 If cost is the worry, say where the tokens go and how to spend fewer. pstack spends extra tokens on subagents and review panels. Rerun `/setup-pstack` and pick a smaller budget or cheaper models, or change one role with `aw models set ROLE model:effort`. `aw limits` shows how much of each plan is left. A role set to `inherit` runs on the session's model, which saves tokens when the session runs on a cheaper model. Each model's `provider` decides which subscription pays, so moving a busy role to the other provider spreads the load. A shorter panel list runs fewer subagents, one for each entry. Ask for a lighter pass when a task doesn't need the full playbook.
 
-This is pstack ported from Cursor to Claude Code, Codex, and Grok. The workflow skill and skills such as `/how`, `/why`, and `/teach`, spawn subagents with per-role models, natively in the current CLI or through `aw-run` on another one. Codex invokes each skill as `$name` instead of `/name`. Custom Modes are a Cursor feature, and `/loop` exists in Claude Code and Grok but not in Codex.
+This is pstack ported from Cursor to Claude Code, Codex, and Grok. The workflow skill and skills such as `/how`, `/why`, and `/teach`, spawn subagents with per-role models through `aw-run`, or natively in Codex and Grok for that CLI's own models. Codex invokes each skill as `$name` instead of `/name`. Custom Modes are a Cursor feature, and `/loop` exists in Claude Code and Grok but not in Codex.
 
 ## Start a task
 

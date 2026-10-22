@@ -26,7 +26,7 @@ Before spawning reviewers, state the intent in one clear paragraph from the user
 
 Launch all reviewers in a single message, one per entry in the `interrogate_reviewers` role in `~/.config/agent-workflows/models.toml`, labeled Reviewer A, B, and so on to match the entry count. Resolve the entries with `aw-run --resolve interrogate_reviewers`. The shipped registry lists one `claude` and one `codex` entry.
 
-Each reviewer is a general-purpose, read-only subagent on its entry's model, spawned per the Subagents section of the **workflow** skill (`aw-run interrogate_reviewers --index <n> --read-only` for an entry on the other provider). An `inherit` entry runs that reviewer on the parent model.
+Each reviewer is a general-purpose, read-only subagent on its entry's model, spawned per the Subagents section of the **workflow** skill (`aw-run interrogate_reviewers --index <n> --read-only` for every entry in Claude Code, and for an entry on the other provider elsewhere). An `inherit` entry runs that reviewer on the parent model.
 
 If the spawn or `aw-run` rejects an entry's model or its provider is unavailable, run that reviewer on the model's `fallback` and say so. Families are providers, so a fallback onto the other reviewer's provider leaves the panel single-family. Report that. Do not block the review on the model issue. Never treat an `inherit` entry as a rejected model or apply the fallback to it.
 
