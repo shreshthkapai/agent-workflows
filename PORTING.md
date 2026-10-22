@@ -42,6 +42,7 @@ The workflow is manual by default, as upstream's `poteto-mode` is, and `aw skill
 - `limits` and `upstream`, manual skills with no upstream counterpart. `upstream` reports what changed in pstack since the last `Import upstream pstack verbatim` commit.
 - `create-formal-verification-skill` names the project skill folder of each CLI, as `create-verification-skill` does. Upstream says only "project-local".
 - The `comment_sicko` role, so `no-comments` runs Comment Sicko on a set model. Upstream spawns it on the parent's model. `aw-run --agent` starts the child as an installed agent other than `delegate`.
+- `aw-route`, a Claude Code hook, and the workflow's `Role:` line. A Claude lead that skipped `aw-run --resolve` spawned code delegates on its own model, so Codex roles ran on Claude. Upstream needs no gate, because Cursor's Task tool takes any model.
 - `delegate`, and the workflow's Playbooks section, say a delegate does its task itself, and that playbooks and subagent spawns are the lead's. Upstream relies on Cursor subagents being unable to act as leads. Here a native subagent or an `aw-run` child read the always-on workflow and ran playbooks.
 
 ## Removed

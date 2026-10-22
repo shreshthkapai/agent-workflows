@@ -199,8 +199,33 @@ def write(path, kind, source, manual, runtime):
 
 
 def bins():
-    """`aw` links back to this checkout so it can reinstall from it. `aw-run` is a standalone copy."""
-    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run")}
+    """`aw` links back to this checkout so it can reinstall from it. `aw-run` and `aw-route` are standalone copies."""
+    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run"),
+            BIN / "aw-route": ("copy", PACKAGE / "bin" / "aw-route")}
+
+
+def route_hook(install):
+    """Add or remove the PreToolUse entry that runs `aw-route` on Claude Code subagent spawns."""
+    path = RUNTIMES["claude"]["root"] / "settings.json"
+    try:
+        settings = json.loads(path.read_text()) if path.is_file() else {}
+    except json.JSONDecodeError:
+        print(f"aw: {path} is not valid JSON, so the subagent routing hook was not {'added' if install else 'removed'}.")
+        return
+    command = str(BIN / "aw-route")
+    entries = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
+    kept = [entry for entry in entries if not any(hook.get("command") == command for hook in entry.get("hooks", []))]
+    if install:
+        kept.append({"matcher": "Agent|Task", "hooks": [{"type": "command", "command": command, "timeout": 10}]})
+    if kept == entries:
+        return
+    settings["hooks"]["PreToolUse"] = kept
+    if not kept:
+        del settings["hooks"]["PreToolUse"]
+    if not settings["hooks"]:
+        del settings["hooks"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
 
 
 def conflicts(paths, owned, force):
@@ -237,6 +262,8 @@ def command_install(args):
             print(f"{runtime:6} write {path} ({note})")
         for path, (how, source) in bins().items():
             print(f"{'':6} {how}  {path} -> {source}" if how == "link" else f"{'':6} write {path}")
+        if "claude" in runtimes:
+            print(f"claude hook  {RUNTIMES['claude']['root'] / 'settings.json'} PreToolUse -> {BIN / 'aw-route'}")
         return
     for path, (runtime, kind, source, manual) in files.items():
         write(path, kind, source, manual, runtime)
@@ -256,6 +283,8 @@ def command_install(args):
         if str(BIN / name) in state["files"] or (BIN / name).is_file():
             (BIN / name).unlink(missing_ok=True)
             state["files"] = [path for path in state["files"] if path != str(BIN / name)]
+    if "claude" in runtimes:
+        route_hook(install=True)
     if not REGISTRY.exists():  # Never overwrite the user's model choices.
         CONFIG.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PACKAGE / "config" / "models.toml", REGISTRY)
@@ -275,6 +304,8 @@ def command_uninstall(args):
     for runtime in runtimes:
         root = RUNTIMES[runtime]["root"]
         remove_block(root / RUNTIMES[runtime]["host"])
+        if runtime == "claude":
+            route_hook(install=False)
         for path in [Path(path) for path in state["files"] if Path(path).is_relative_to(root)]:
             if path.is_dir():
                 shutil.rmtree(path)

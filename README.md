@@ -41,7 +41,8 @@ aw uninstall
 - The skills to `~/.claude/skills`, `~/.codex/skills`, or `~/.grok/skills`.
 - The `delegate` and `comment-sicko` agents to each CLI's `agents` directory.
 - With the workflow always on, a marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md` that loads it into every session.
-- `aw` and `aw-run` in `~/.local/bin`. `aw` links back to the checkout, so keep the checkout.
+- `aw`, `aw-run`, and `aw-route` in `~/.local/bin`. `aw` links back to the checkout, so keep the checkout.
+- For Claude Code, a `PreToolUse` hook in `~/.claude/settings.json` that runs `aw-route` on every subagent spawn. Uninstall removes it.
 - The model registry at `~/.config/agent-workflows/models.toml`, if you don't have one yet.
 
 A rerun replaces only the files `aw` wrote. It stops before it overwrites a skill or agent it did not install, unless you pass `--force`. Other options are `--runtime codex` for one CLI, `--skills a,b` for a subset, and `--dry-run` to print the plan.
@@ -117,6 +118,8 @@ aw skills auto obsidian-markdown obsidian-bases json-canvas obsidian-cli
 ## How a subagent reaches another provider
 
 A skill looks up a role with `aw-run --resolve <role>`. If the role's model belongs to the CLI you are in, the lead spawns a native subagent with that model and effort. If not, it runs `aw-run <role> < brief.md`, which starts `claude -p`, `codex exec`, or `grok --prompt-file` in headless mode and returns the final message.
+
+In Claude Code, `aw-route` holds the lead to this. The workflow opens every brief with `Role: <role>`, and the hook denies a native `delegate`, `general-purpose`, or `comment-sicko` spawn whose role runs on another provider, naming the `aw-run` command to use instead. A brief without the line is denied too. `Role: none` marks a helper whose skill picks its model. If the hook fails, the spawn goes ahead. `claude-lite` skips it.
 
 - `aw-run` tells each child that it is the lead's delegate, so the child does its task and does not start its own playbook. `--agent NAME` runs the child as another installed agent, as `no-comments` does with `comment-sicko`.
 - `--shift -2` lowers effort two steps for routine work, and `--shift 1` raises it one step for the hardest work.
