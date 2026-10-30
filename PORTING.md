@@ -39,7 +39,7 @@ The workflow is manual by default, as upstream's `poteto-mode` is, and `aw skill
 ## Added
 
 - `obsidian-markdown`, `obsidian-bases`, `json-canvas`, and `obsidian-cli`, manual skills copied unchanged from kepano/obsidian-skills@3ccff53. They are not pstack, so `git diff 22880ab -- skills` also shows them as added. Update them by copying the newer upstream folders over these.
-- `limits` and `upstream`, manual skills with no upstream counterpart. `upstream` reports what changed in pstack since the last `Import upstream pstack verbatim` commit.
+- `limits`, `upstream`, and `delegate`, manual skills with no upstream counterpart. `delegate` hands a whole task to the `delegate` role's model, Codex by default, through `aw-run --lead`, and the session checks the diff. `upstream` reports what changed in pstack since the last `Import upstream pstack verbatim` commit.
 - `create-formal-verification-skill` names the project skill folder of each CLI, as `create-verification-skill` does. Upstream says only "project-local".
 - The `comment_sicko` role, so `no-comments` runs Comment Sicko on a set model. Upstream spawns it on the parent's model. `aw-run --agent` starts the child as an installed agent other than `delegate`.
 - With the workflow always on, `aw install` turns off Claude Code's Agent tool, and the workflow runs every Claude Code subagent through `aw-run`. A Claude lead that skipped `aw-run --resolve`, or picked a built-in agent type, spawned subagents on Claude, so Codex roles ran there. Upstream needs no gate, because Cursor's Task tool takes any model.

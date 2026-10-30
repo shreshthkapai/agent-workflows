@@ -52,7 +52,8 @@ def last_usage(events):
 
 def claude_command(choice, read_only, cwd, files):
     model = ["--model", choice["model"]] if choice["model"] else []
-    return ["claude", "-p", "--agent", choice["agent"], *model, "--effort", choice["effort"],
+    agent = ["--agent", choice["agent"]] if choice["agent"] else []
+    return ["claude", "-p", *agent, *model, "--effort", choice["effort"],
             "--permission-mode", "plan" if read_only else "auto", "--output-format", "json"]
 
 
@@ -72,10 +73,12 @@ def codex_command(choice, read_only, cwd, files):
 
 
 def delegate_brief(brief, agent):
-    return DELEGATE + brief
+    return DELEGATE + brief if agent else brief
 
 
 def codex_brief(brief, agent):
+    if not agent:
+        return brief
     # `codex exec` cannot select an agent, and Codex labels every session `/root`.
     path = CODEX_AGENTS / f"{agent}.toml"
     if not path.is_file():
@@ -90,7 +93,8 @@ def codex_parse(result, files):
 
 def grok_command(choice, read_only, cwd, files):
     # Grok's headless mode does not read stdin, so the brief goes through --prompt-file.
-    return ["grok", "--prompt-file", files["prompt"], "--agent", choice["agent"], "-m", choice["model"], "--effort", choice["effort"],
+    agent = ["--agent", choice["agent"]] if choice["agent"] else []
+    return ["grok", "--prompt-file", files["prompt"], *agent, "-m", choice["model"], "--effort", choice["effort"],
             "--sandbox", "read-only" if read_only else "workspace",
             "--permission-mode", "dontAsk" if read_only else "auto",
             "--cwd", str(cwd), "--output-format", "json"]
@@ -234,7 +238,9 @@ def main():
     parser.add_argument("--read-only", action="store_true", help="run in the CLI's read-only sandbox or plan mode")
     parser.add_argument("--cd", type=Path, default=Path.cwd(), help="working directory for the run")
     parser.add_argument("--out", type=Path, help="also write the final message here")
-    parser.add_argument("--agent", default="delegate", help="installed agent the child runs as")
+    child = parser.add_mutually_exclusive_group()
+    child.add_argument("--agent", default="delegate", help="installed agent the child runs as")
+    child.add_argument("--lead", action="store_true", help="run the child as a lead that follows the workflow itself")
     parser.add_argument("--no-fallback", action="store_true", help="fail instead of switching to a fallback")
     args = parser.parse_args()
     registry = load()
@@ -266,7 +272,7 @@ def main():
         entry = seat if name == "inherit" else registry["models"][name]
         fast = seat["speed"] == "fast" and PROVIDERS[entry["provider"]].get("fast")
         choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"],
-                  "speed": "fast" if fast else "standard", "agent": args.agent}
+                  "speed": "fast" if fast else "standard", "agent": None if args.lead else args.agent}
         text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
         log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": index, "model_name": name,
              **choice, "read_only": args.read_only, "limited": limited, **({"pool": True} if pool else {}),

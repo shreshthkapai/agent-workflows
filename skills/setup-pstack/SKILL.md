@@ -80,6 +80,7 @@ swarm_workers = "sol"
 architect_runners = ["opus", "sol"]
 interrogate_reviewers = ["opus", "sol"]
 comment_sicko = "sol"
+delegate = "sol"
 ```
 
 ### 6. Confirm

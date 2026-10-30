@@ -122,6 +122,7 @@ A skill looks up a role with `aw-run --resolve <role>`. In Codex or Grok, if the
 In Claude Code with the workflow always on, the Agent tool is off, so every subagent starts through `aw-run`, Claude roles included. A lead cannot reach for a built-in agent type that runs on Claude by default, and nothing runs without a role. The deny rule is in the user settings, so it applies to every Claude Code session, `claude-lite` included. Claude Code's built-in Explore and Plan agents are gone too, though plan mode still mentions them.
 
 - `aw-run` tells each child that it is the lead's delegate, so the child does its task and does not start its own playbook. `--agent NAME` runs the child as another installed agent, as `no-comments` does with `comment-sicko`.
+- `--lead` drops that line and the agent, so the child runs the workflow as a lead. `/delegate` uses it to hand a whole task to the `delegate` role's model, Codex by default, and then checks the diff.
 - `--shift -2` lowers effort two steps for routine work, and `--shift 1` raises it one step for the hardest work.
 - `--read-only` runs Claude in plan mode and Codex and Grok in their read-only sandboxes.
 - Writable Codex jobs enable network access within the `workspace-write` sandbox, including localhost servers and browser checks.
