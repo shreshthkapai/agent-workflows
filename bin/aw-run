@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import tomllib
+import uuid
 
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 BUDGETS = {"unlimited": "max", "large": "xhigh", "medium": "high", "small": "medium"}
@@ -91,6 +92,72 @@ def codex_parse(result, files):
     return Path(files["message"]).read_text(), result.returncode != 0, {"usage": last_usage(result.stdout)}
 
 
+def codex_interactive(choice, read_only, cwd, session):
+    tier = ["-c", 'service_tier="priority"'] if choice["speed"] == "fast" else []
+    network = [] if read_only else ["-c", "sandbox_workspace_write.network_access=true"]
+    sandbox = ["-s", "read-only"] if read_only else ["--approve-for-me"]
+    return ["codex", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"', *tier,
+            *sandbox, *network, "-C", str(cwd)]
+
+
+def claude_interactive(choice, read_only, cwd, session):
+    model = ["--model", choice["model"]] if choice["model"] else []
+    agent = ["--agent", choice["agent"]] if choice["agent"] else []
+    return ["claude", "--session-id", session, *agent, *model, "--effort", choice["effort"],
+            "--permission-mode", "dontAsk" if read_only else "auto"]
+
+
+def transcript_entries(path):
+    with path.open() as handle:
+        for line in handle:
+            event = json_or(line, None)
+            if isinstance(event, dict):
+                yield event
+
+
+def codex_transcript(nonce, started):
+    root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "sessions"
+    for path in root.glob("**/rollout-*.jsonl"):
+        if path.stat().st_mtime < started:
+            continue
+        matched, text, usage = False, "", None
+        for event in transcript_entries(path):
+            payload = event.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            if (event.get("type") == "response_item" and payload.get("type") == "message"
+                    and payload.get("role") == "user"):
+                matched |= any(nonce in part.get("text", "") for part in payload.get("content", []))
+            elif payload.get("type") == "task_complete":
+                text = payload.get("last_agent_message") or ""
+            elif payload.get("type") == "token_count":
+                usage = (payload.get("info") or {}).get("total_token_usage")
+        if matched:
+            return text, {"usage": usage}
+    return "", {"usage": None}
+
+
+def claude_transcript(session, started):
+    root = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude")) / "projects"
+    for path in root.glob(f"*/{session}.jsonl"):
+        text, cost, messages = "", None, {}
+        for event in transcript_entries(path):
+            if event.get("type") == "assistant":
+                message = event.get("message", {})
+                text = "\n".join(part["text"] for part in message.get("content", []) if part.get("type") == "text") or text
+                if message.get("usage"):
+                    messages[message["id"]] = message["usage"]
+            elif event.get("type") == "cost-state":
+                cost = event.get("totalCostUSD")
+        usage = {}
+        for tokens in messages.values():
+            for key, value in tokens.items():
+                if isinstance(value, (int, float)):
+                    usage[key] = usage.get(key, 0) + value
+        return text, {"usage": usage or None, "cost_usd": cost}
+    return "", {"usage": None, "cost_usd": None}
+
+
 def grok_command(choice, read_only, cwd, files):
     # Grok's headless mode does not read stdin, so the brief goes through --prompt-file.
     agent = ["--agent", choice["agent"]] if choice["agent"] else []
@@ -108,9 +175,10 @@ def grok_parse(result, files):
 
 
 PROVIDERS = {
-    "claude": {"binary": "claude", "command": claude_command, "parse": claude_parse, "stdin": True, "brief": delegate_brief},
+    "claude": {"binary": "claude", "command": claude_command, "parse": claude_parse, "stdin": True, "brief": delegate_brief,
+               "herdr": {"command": claude_interactive, "transcript": claude_transcript}},
     "codex": {"binary": "codex", "command": codex_command, "parse": codex_parse, "stdin": True, "brief": codex_brief,
-              "fast": True},
+              "fast": True, "herdr": {"command": codex_interactive, "transcript": codex_transcript}},
     "grok": {"binary": "grok", "command": grok_command, "parse": grok_parse, "stdin": False, "brief": delegate_brief},
 }
 
@@ -205,9 +273,85 @@ def take_turn(role, size):
     return turn % size
 
 
-def run(choice, brief, read_only, cwd):
+def hc(*args):
+    result = subprocess.run(["hc", *args], capture_output=True, text=True)
+    data = json_or(result.stdout, None)
+    if result.returncode or not isinstance(data, dict):
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "hc returned no result")
+    return data
+
+
+def hc_launch(name, cwd, command):
+    return hc("run", "--bg", "--rm", "--no-notify", "--name", name, "--cwd", str(cwd), "--", *command)["address"]
+
+
+def hc_wait(address):
+    return hc("wait", address, "--timeout", "30", "--json")
+
+
+def hc_kill(address):
+    subprocess.run(["hc", "kill", address], capture_output=True, text=True)
+
+
+def run_herdr(provider, choice, brief, read_only, cwd, role, seat, session):
+    name = re.sub(r"[^a-z0-9_-]", "-", role.lower())[:32 - len(f"-{seat}-{os.getpid()}")] + f"-{seat}-{os.getpid()}"
+    address = None
+    started = time.monotonic()
+    launched = time.time()
+    try:
+        address = hc_launch(name, cwd, provider["command"](choice, read_only, cwd, session))
+        deadline = time.monotonic() + 60
+        while True:
+            terminal = hc("get", address, "--json")
+            if terminal.get("state") != "live":
+                raise RuntimeError(f"{name} was closed before it finished")
+            if terminal.get("status"):
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"{name} did not report a status within 60 seconds")
+            time.sleep(0.5)
+        sent = hc("send", address, brief, "--wait", "--timeout", "30", "--json")
+        result = sent.get("wait") or (hc_wait(address) if sent.get("started") else {"reason": "not_started"})
+        notified = False
+        while True:
+            reason, status = result.get("reason"), result.get("status")
+            if reason == "exit":
+                raise RuntimeError(f"{name} was closed before it finished")
+            if reason == "timeout" or (reason == "status" and status == "blocked"):
+                if status == "blocked" and not notified:
+                    print(f"aw-run: {name} is waiting for you in Herdr", file=sys.stderr)
+                    notified = True
+                if status == "blocked":
+                    time.sleep(2)
+                result = hc_wait(address)
+                continue
+            # The CLI can report the turn over before its transcript has the final message.
+            for _ in range(20):
+                text, details = provider["transcript"](session, launched)
+                if text:
+                    break
+                time.sleep(0.5)
+            screen = subprocess.run(["hc", "read", address], capture_output=True, text=True).stdout
+            failed = reason != "status" or status not in ("idle", "done") or not text
+            limited = failed and bool(LIMIT.search(text + screen))
+            if not text:
+                text = f"aw-run: {name} returned no final message"
+            return text, failed, limited, {"exit": int(failed), "seconds": round(time.monotonic() - started, 1), **details}
+    except (OSError, RuntimeError, KeyError) as error:
+        return f"aw-run: {error}", True, False, {"exit": 1, "seconds": round(time.monotonic() - started, 1), "usage": None}
+    finally:
+        if address:
+            hc_kill(address)
+
+
+def run(choice, brief, read_only, cwd, role, seat):
     provider = PROVIDERS[choice["provider"]]
     brief = provider["brief"](brief, choice["agent"])
+    session = str(uuid.uuid4())
+    herdr_brief = brief + f"\n\n<!-- aw-run {session} -->"
+    if (os.environ.get("HC_TERMINAL_ID") and shutil.which("hc") and provider.get("herdr")
+            and os.environ.get("AW_HERDR") != "0" and len(herdr_brief.encode()) <= 100_000):
+        return run_herdr(provider["herdr"], choice, herdr_brief, read_only, cwd, role, seat, session)
     with tempfile.TemporaryDirectory(prefix="aw-run-") as scratch:
         files = {"message": str(Path(scratch) / "message.md"), "prompt": str(Path(scratch) / "prompt.md")}
         Path(files["message"]).touch()
@@ -273,7 +417,7 @@ def main():
         fast = seat["speed"] == "fast" and PROVIDERS[entry["provider"]].get("fast")
         choice = {"provider": entry["provider"], "model": entry["model"], "effort": seat["effort"],
                   "speed": "fast" if fast else "standard", "agent": None if args.lead else args.agent}
-        text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd)
+        text, failed, limited, outcome = run(choice, brief, args.read_only, args.cd, args.role, index)
         log({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "role": args.role, "seat": index, "model_name": name,
              **choice, "read_only": args.read_only, "limited": limited, **({"pool": True} if pool else {}),
              **({"fallback_from": attempts[attempt - 1]} if attempt else {}), **outcome})
