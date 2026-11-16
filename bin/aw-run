@@ -24,6 +24,8 @@ import uuid
 
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 BUDGETS = {"unlimited": "max", "large": "xhigh", "medium": "high", "small": "medium"}
+# Interactive Claude asks before it opens a folder nobody trusted yet, and `claude -p` does not.
+TRUST = re.compile(r"trust this folder", re.I)
 LIMIT = re.compile(r"usage limit|rate limit|limit reached|quota|too many requests|\b429\b", re.I)
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-workflows" / "models.toml"
 CODEX_AGENTS = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "agents"
@@ -289,27 +291,47 @@ def hc_wait(address):
     return hc("wait", address, "--timeout", "30", "--json")
 
 
+def hc_screen(address):
+    return subprocess.run(["hc", "read", address], capture_output=True, text=True).stdout
+
+
+class NotStarted(Exception):
+    """The pane never took the brief, so the seat can still run headless."""
+
+
+def hc_started(name, cwd, command):
+    address = hc_launch(name, cwd, command)
+    try:
+        deadline = time.monotonic() + 60
+        while True:
+            terminal = hc("get", address, "--json")
+            if terminal.get("state") != "live":
+                raise RuntimeError(f"{name} exited before it started")
+            if terminal.get("status"):
+                return address
+            if TRUST.search(hc_screen(address)):
+                raise RuntimeError(f"{name} is asking whether to trust {cwd}")
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"{name} did not report a status within 60 seconds")
+            time.sleep(0.5)
+    except RuntimeError:
+        hc_kill(address)
+        raise
+
+
 def hc_kill(address):
     subprocess.run(["hc", "kill", address], capture_output=True, text=True)
 
 
 def run_herdr(provider, choice, brief, read_only, cwd, role, seat, session):
     name = re.sub(r"[^a-z0-9_-]", "-", role.lower())[:32 - len(f"-{seat}-{os.getpid()}")] + f"-{seat}-{os.getpid()}"
-    address = None
     started = time.monotonic()
     launched = time.time()
     try:
-        address = hc_launch(name, cwd, provider["command"](choice, read_only, cwd, session))
-        deadline = time.monotonic() + 60
-        while True:
-            terminal = hc("get", address, "--json")
-            if terminal.get("state") != "live":
-                raise RuntimeError(f"{name} was closed before it finished")
-            if terminal.get("status"):
-                break
-            if time.monotonic() >= deadline:
-                raise RuntimeError(f"{name} did not report a status within 60 seconds")
-            time.sleep(0.5)
+        address = hc_started(name, cwd, provider["command"](choice, read_only, cwd, session))
+    except (OSError, RuntimeError) as error:
+        raise NotStarted(str(error)) from error
+    try:
         sent = hc("send", address, brief, "--wait", "--timeout", "30", "--json")
         result = sent.get("wait") or (hc_wait(address) if sent.get("started") else {"reason": "not_started"})
         notified = False
@@ -331,7 +353,7 @@ def run_herdr(provider, choice, brief, read_only, cwd, role, seat, session):
                 if text:
                     break
                 time.sleep(0.5)
-            screen = subprocess.run(["hc", "read", address], capture_output=True, text=True).stdout
+            screen = hc_screen(address)
             failed = reason != "status" or status not in ("idle", "done") or not text
             limited = failed and bool(LIMIT.search(text + screen))
             if not text:
@@ -340,8 +362,7 @@ def run_herdr(provider, choice, brief, read_only, cwd, role, seat, session):
     except (OSError, RuntimeError, KeyError) as error:
         return f"aw-run: {error}", True, False, {"exit": 1, "seconds": round(time.monotonic() - started, 1), "usage": None}
     finally:
-        if address:
-            hc_kill(address)
+        hc_kill(address)
 
 
 def run(choice, brief, read_only, cwd, role, seat):
@@ -351,7 +372,10 @@ def run(choice, brief, read_only, cwd, role, seat):
     herdr_brief = brief + f"\n\n<!-- aw-run {session} -->"
     if (os.environ.get("HC_TERMINAL_ID") and shutil.which("hc") and provider.get("herdr")
             and os.environ.get("AW_HERDR") != "0" and len(herdr_brief.encode()) <= 100_000):
-        return run_herdr(provider["herdr"], choice, herdr_brief, read_only, cwd, role, seat, session)
+        try:
+            return run_herdr(provider["herdr"], choice, herdr_brief, read_only, cwd, role, seat, session)
+        except NotStarted as error:
+            print(f"aw-run: {error}, so it runs headless instead", file=sys.stderr)
     with tempfile.TemporaryDirectory(prefix="aw-run-") as scratch:
         files = {"message": str(Path(scratch) / "message.md"), "prompt": str(Path(scratch) / "prompt.md")}
         Path(files["message"]).touch()
