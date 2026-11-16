@@ -1,6 +1,6 @@
 # Porting pstack to Claude Code, Codex, and Grok
 
-The skills are [pstack](https://github.com/cursor/plugins/tree/main/pstack) verbatim, except where a passage needs Cursor. Commit `22880ab` imports upstream unchanged, so `git diff 22880ab -- skills agents` is the full list of porting edits. Commit `c411450` re-imports the skills that changed up to cursor/plugins@d457567, without the skills upstream added, so diff those skills against `c411450` instead. Commit `39ae9f0` imports the formal verification skills and the `setup-pstack` and `poteto-help` changes that point at them, from the same upstream commit, so diff those files against `39ae9f0`. Re-sync the same way: import upstream verbatim in one commit, then reapply these rules in the next.
+The skills are [pstack](https://github.com/cursor/plugins/tree/main/pstack) verbatim, except where a passage needs Cursor. Commit `22880ab` imports upstream unchanged, so `git diff 22880ab -- skills agents` is the full list of porting edits. Commit `c411450` re-imports the skills that changed up to cursor/plugins@d457567, without the skills upstream added, so diff those skills against `c411450` instead. Commit `39ae9f0` imports the formal verification skills and the `setup-pstack` and `poteto-help` changes that point at them, from the same upstream commit, so diff those files against `39ae9f0`. Commit `e866788` imports every skill and agent file that changed up to cursor/plugins@bf0c7cd, with the `statechart` and `ketchup-video` skills upstream added, so diff those files against `e866788`. Re-sync the same way: import upstream verbatim in one commit, then reapply these rules in the next.
 
 ## Rule
 
@@ -45,6 +45,8 @@ The workflow is manual by default, as upstream's `poteto-mode` is, and `aw skill
 - With the workflow always on, `aw install` turns off Claude Code's Agent tool, and the workflow runs every Claude Code subagent through `aw-run`. A Claude lead that skipped `aw-run --resolve`, or picked a built-in agent type, spawned subagents on Claude, so Codex roles ran there. Upstream needs no gate, because Cursor's Task tool takes any model.
 - Pool roles, `{ pool = [...] }` in `models.toml`. Each spawn takes the next entry in turn, so a role such as `judgment_prose` can split its helpers between Codex and Claude. Upstream roles are one model or a panel.
 - `delegate`, and the workflow's Playbooks section, say a delegate does its task itself, and that playbooks and subagent spawns are the lead's. Upstream relies on Cursor subagents being unable to act as leads. Here a native subagent or an `aw-run` child read the always-on workflow and ran playbooks.
+- `how` runs its one explainer on the `judgment_prose` role, because every Claude Code spawn here needs a role. Upstream runs it on the parent's model.
+- Orchestrate names Herdr. Inside it, each `aw-run` worker runs as a visible sub-agent, and `hc kill` or closing its tab stops one. An `aw-run` worker ends with its turn, so a follow-up goes to a fresh worker in the same worktree. Upstream keeps Cursor agents alive to message.
 
 ## Removed
 
