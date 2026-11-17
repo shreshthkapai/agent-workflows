@@ -43,6 +43,7 @@ aw uninstall
 - With the workflow always on, a marked block in `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, or `~/.grok/AGENTS.md` that loads it into every session.
 - `aw` and `aw-run` in `~/.local/bin`. `aw` links back to the checkout, so keep the checkout.
 - For Claude Code with the workflow always on, an `Agent` entry in `permissions.deny` of `~/.claude/settings.json`, which turns off the Agent tool. `aw skills manual workflow` and uninstall remove it, unless you added it yourself.
+- For Claude Code, `CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS` set to `30000` in the `env` of `~/.claude/settings.json`, unless you set it yourself. A shell command that runs past 30 seconds then moves to the background, and the session keeps working until the command reports back. Without it, Claude Code holds the session until the command's time limit, 2 minutes by default and up to 10. Codex and Grok already move long commands to the background. Uninstall removes it, unless you changed it.
 - The model registry at `~/.config/agent-workflows/models.toml`, if you don't have one yet.
 
 A rerun replaces only the files `aw` wrote. It stops before it overwrites a skill or agent it did not install, unless you pass `--force`. Other options are `--runtime codex` for one CLI, `--skills a,b` for a subset, and `--dry-run` to print the plan.

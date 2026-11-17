@@ -54,6 +54,9 @@ MANUAL = re.compile(r"^disable-model-invocation:\s*(true|false)\s*\n", re.M)
 LEGACY_BINS = ["aw-limits", "aw-route"]
 # Only the workflow can be always on, because the installer's instructions block loads exactly that skill.
 ALWAYS_CAPABLE = {"workflow"}
+# Claude Code moves a foreground command to the background once this many milliseconds pass, instead of holding the
+# turn until the command's own timeout of 2 to 10 minutes. Codex yields after about a second and Grok after 30 seconds.
+AUTO_BACKGROUND = ("CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS", "30000")
 
 
 def load(path, default):
@@ -159,6 +162,7 @@ def save_installs(state):
     INSTALLS.write_text("# Written by `aw install`. Lists what it installed, so updates and uninstall touch only these.\n"
                         f"runtimes = {toml_list(sorted(state['runtimes']))}\n"
                         f"agent_deny = {json.dumps(bool(state.get('agent_deny')))}\n"
+                        f"auto_background = {json.dumps(bool(state.get('auto_background')))}\n"
                         "files = [\n" + "".join(f"  {json.dumps(path)},\n" for path in sorted(set(state["files"]))) + "]\n")
 
 
@@ -204,14 +208,15 @@ def bins():
     return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run")}
 
 
-def sync_agent_tool(state):
+def sync_claude_settings(state):
     """Deny Claude Code's Agent tool while the workflow is always on there, which hides the tool, so every subagent
-    starts through `aw-run` on its role's model. Lift the deny otherwise, but only if aw added it."""
+    starts through `aw-run` on its role's model. Set AUTO_BACKGROUND while Claude is installed, unless the user set
+    it. Undo each one otherwise, but only if aw added it."""
     path = RUNTIMES["claude"]["root"] / "settings.json"
     try:
         settings = json.loads(path.read_text()) if path.is_file() else {}
     except json.JSONDecodeError:
-        print(f"aw: {path} is not valid JSON, so the Agent tool setting was not changed.")
+        print(f"aw: {path} is not valid JSON, so the Agent tool and background settings were not changed.")
         return
     before = json.dumps(settings)
     hooks = settings.get("hooks", {})
@@ -237,6 +242,18 @@ def sync_agent_tool(state):
             if not settings["permissions"]:
                 del settings["permissions"]
         state["agent_deny"] = False
+    key, value = AUTO_BACKGROUND
+    env = settings.get("env", {})
+    if "claude" in state["runtimes"]:
+        if key not in env:
+            settings.setdefault("env", {})[key] = value
+            state["auto_background"] = True
+    elif state.get("auto_background"):
+        if env.get(key) == value:
+            del env[key]
+            if not env:
+                del settings["env"]
+        state["auto_background"] = False
     if json.dumps(settings) != before:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
@@ -279,6 +296,8 @@ def command_install(args):
         if "claude" in runtimes:
             print(f"claude deny  {RUNTIMES['claude']['root'] / 'settings.json'} permissions.deny Agent, "
                   "while the workflow is always on")
+            print(f"claude env   {RUNTIMES['claude']['root'] / 'settings.json'} env.{AUTO_BACKGROUND[0]}="
+                  f"{AUTO_BACKGROUND[1]}, unless you set it")
         return
     for path, (runtime, kind, source, manual) in files.items():
         write(path, kind, source, manual, runtime)
@@ -302,7 +321,7 @@ def command_install(args):
         CONFIG.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PACKAGE / "config" / "models.toml", REGISTRY)
     state["runtimes"] = sorted(set(state["runtimes"]) | set(runtimes))
-    sync_agent_tool(state)
+    sync_claude_settings(state)
     save_installs(state)
     counts = {mode: sum(1 for name in names if modes()[name] == mode) for mode in ("always", "auto", "manual")}
     print(f"Installed {len(names)} skills ({counts['always']} always on, {counts['auto']} auto, {counts['manual']} manual) "
@@ -325,7 +344,7 @@ def command_uninstall(args):
                 path.unlink(missing_ok=True)
             state["files"].remove(str(path))
     state["runtimes"] = [runtime for runtime in state["runtimes"] if runtime not in runtimes]
-    sync_agent_tool(state)
+    sync_claude_settings(state)
     if not state["runtimes"]:
         for path in bins():
             path.unlink(missing_ok=True)
@@ -372,7 +391,7 @@ def command_skills(args):
             if kind in ("skill", "instructions"):
                 write(path, kind, source, manual, runtime)
     if "workflow" in args.names and state["runtimes"]:
-        sync_agent_tool(state)
+        sync_claude_settings(state)
         save_installs(state)
     current = modes()
     print("\n".join(f"{name}: {current[name]}" for name in args.names))
