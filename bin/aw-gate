@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""PreToolUse hook for Claude Code, Codex, and Grok on shell commands.
+
+Stops the first try of a command that sends work off this machine (git push, a PR, a release, a publish or deploy)
+and tells the agent to run the workflow's approved check. The same command, retried in the same session within
+RETRY_SECONDS, runs once. Any error lets the command run.
+"""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import sys
+import time
+
+RETRY_SECONDS = 600
+STATE = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "agent-workflows" / "gate.json"
+OPERATORS = ";&|()\n"
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+WRAPPERS = {"sudo", "env", "command", "exec", "time", "nohup", "nice", "npx", "bunx"}
+WRAPPER_OPTIONS_WITH_VALUE = {"-u", "-g", "-n", "-C", "-p"}
+SHELLS = {"sh", "bash", "zsh", "dash"}
+GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+GH = {("pr", "create"), ("pr", "merge"), ("pr", "ready"), ("release", "create"), ("release", "upload")}
+PUSH = {"docker", "podman", "gem", "helm"}
+PUBLISHERS = {"npm", "pnpm", "yarn", "bun", "cargo", "uv", "poetry", "dart", "flutter", "vsce", "ovsx", "fly", "flyctl",
+              "wrangler", "firebase", "vercel", "netlify", "railway", "serverless", "sls", "cdk", "az", "gcloud", "kamal"}
+REASON = (
+    "Paused by the user's agent-workflows setup: this command sends work off this machine. If any of it was built "
+    "from something the user approved (a design, mockup, spec, plan, or their own words), run the approved check in "
+    "the workflow skill's references/approved-check.md first, and get the user's OK on the side by side. After that, "
+    "or if nothing the user approved is involved, tell the user which case it was and run the same command again. "
+    "The retry goes through."
+)
+
+
+def commands(text):
+    """Each simple command in a shell line, as words, split at ; & | ( ) and newlines outside quotes."""
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=OPERATORS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        tokens = text.split()
+    found, current = [], []
+    for token in tokens:
+        if token and set(token) <= set(OPERATORS):
+            found.append(current)
+            current = []
+        else:
+            current.append(token)
+    return [words(command) for command in found + [current]]
+
+
+def words(tokens):
+    while tokens and (ASSIGNMENT.match(tokens[0]) or os.path.basename(tokens[0]) in WRAPPERS):
+        tokens.pop(0)
+        while tokens and tokens[0].startswith("-"):
+            if tokens.pop(0) in WRAPPER_OPTIONS_WITH_VALUE and tokens:
+                tokens.pop(0)
+    if tokens:
+        tokens[0] = os.path.basename(tokens[0])
+    return tokens
+
+
+def git_subcommand(tokens):
+    rest = iter(tokens[1:])
+    for token in rest:
+        if token in GIT_OPTIONS_WITH_VALUE:
+            next(rest, None)
+        elif not token.startswith("-"):
+            return token
+    return None
+
+
+def sends_out(tokens):
+    if not tokens:
+        return False
+    program, head = tokens[0], tokens[1:3]
+    if "--dry-run" in tokens:
+        return False
+    if program in SHELLS:
+        script = next((tokens[i + 1] for i, token in enumerate(tokens[:-1])
+                       if token.startswith("-") and not token.startswith("--") and "c" in token), "")
+        return any(map(sends_out, commands(script)))
+    if program == "git":
+        return git_subcommand(tokens) == "push" and "-n" not in tokens
+    if program == "vercel":
+        return len(tokens) == 1 or tokens[1].startswith("-") or tokens[1] == "deploy"
+    if program == "gh":
+        return tuple(head) in GH
+    if program in PUSH and head[:1] == ["push"]:
+        return True
+    if program == "twine" and head[:1] == ["upload"]:
+        return True
+    return program in PUBLISHERS and ("publish" in head or "deploy" in head)
+
+
+def first_try(session, command):
+    """True the first time; records it so one retry of the same command in the same session runs."""
+    key = hashlib.sha256(f"{session}\0{command}".encode()).hexdigest()
+    now = time.time()
+    try:
+        paused = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        paused = {}
+    paused = {k: t for k, t in paused.items() if now - t < RETRY_SECONDS}
+    first = paused.pop(key, None) is None
+    if first:
+        paused[key] = now
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(paused))
+    return first
+
+
+def main():
+    event = json.load(sys.stdin)
+    command = (event.get("tool_input") or event.get("toolInput") or {}).get("command", "")
+    if not isinstance(command, str) or not any(map(sends_out, commands(command))):
+        return 0
+    session = event.get("session_id") or event.get("sessionId") or os.environ.get("GROK_SESSION_ID", "")
+    if not first_try(session, command.strip()):
+        return 0
+    print(json.dumps({"decision": "deny", "reason": REASON}))
+    print(REASON, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception:
+        sys.exit(0)

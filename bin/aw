@@ -57,6 +57,8 @@ ALWAYS_CAPABLE = {"workflow"}
 # Claude Code moves a foreground command to the background once this many milliseconds pass, instead of holding the
 # turn until the command's own timeout of 2 to 10 minutes. Codex yields after about a second and Grok after 30 seconds.
 AUTO_BACKGROUND = ("CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS", "30000")
+GATE = BIN / "aw-gate"
+GATE_STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local" / "state")) / "agent-workflows" / "gate.json"
 
 
 def load(path, default):
@@ -205,7 +207,52 @@ def write(path, kind, source, manual, runtime):
 
 def bins():
     """`aw` links back to this checkout so it can reinstall from it. `aw-run` is a standalone copy."""
-    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run")}
+    return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run"),
+            GATE: ("copy", PACKAGE / "bin" / "aw-gate")}
+
+
+def gates(runtimes):
+    """Each CLI's hook file, the matcher for its shell tool, and whether `aw-gate` belongs there. Grok also reads
+    Claude Code's settings, so it gets its own file only when Claude is not installed."""
+    return [(RUNTIMES["claude"]["root"] / "settings.json", "Bash", "claude" in runtimes),
+            (RUNTIMES["codex"]["root"] / "hooks.json", "^Bash$", "codex" in runtimes),
+            (RUNTIMES["grok"]["root"] / "hooks" / "agent-workflows.json", "Bash",
+             "grok" in runtimes and "claude" not in runtimes)]
+
+
+def sync_gates(runtimes):
+    """Add `aw-gate` as a PreToolUse hook where it belongs and remove it elsewhere. Also drops the `aw-route` hook
+    that installs wrote before the Agent tool was turned off."""
+    ours = {str(GATE), str(BIN / "aw-route")}
+    for path, matcher, wanted in gates(runtimes):
+        try:
+            data = json.loads(path.read_text()) if path.is_file() else {}
+        except json.JSONDecodeError:
+            print(f"aw: {path} is not valid JSON, so the outgoing-work hook was not changed there.")
+            continue
+        before = json.dumps(data)
+        entries = []
+        for entry in data.get("hooks", {}).get("PreToolUse", []):
+            kept = [hook for hook in entry.get("hooks", []) if hook.get("command") not in ours]
+            if len(kept) == len(entry.get("hooks", [])):
+                entries.append(entry)
+            elif kept:
+                entries.append({**entry, "hooks": kept})
+        if wanted:
+            entries.append({"matcher": matcher, "hooks": [{"type": "command", "command": str(GATE), "timeout": 10}]})
+        if entries:
+            data.setdefault("hooks", {})["PreToolUse"] = entries
+        elif "PreToolUse" in data.get("hooks", {}):
+            del data["hooks"]["PreToolUse"]
+            if not data["hooks"]:
+                del data["hooks"]
+        if json.dumps(data) == before:
+            continue
+        if not data and path.name != "settings.json":
+            path.unlink()
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def sync_claude_settings(state):
@@ -219,17 +266,6 @@ def sync_claude_settings(state):
         print(f"aw: {path} is not valid JSON, so the Agent tool and background settings were not changed.")
         return
     before = json.dumps(settings)
-    hooks = settings.get("hooks", {})
-    # Installs before the Agent tool was turned off routed spawns through an `aw-route` hook.
-    entries = hooks.get("PreToolUse", [])
-    kept = [entry for entry in entries
-            if not any(hook.get("command") == str(BIN / "aw-route") for hook in entry.get("hooks", []))]
-    if len(kept) < len(entries):
-        hooks["PreToolUse"] = kept
-        if not kept:
-            del hooks["PreToolUse"]
-            if not hooks:
-                del settings["hooks"]
     deny = settings.get("permissions", {}).get("deny", [])
     if "claude" in state["runtimes"] and modes()["workflow"] == "always":
         if "Agent" not in deny:
@@ -298,6 +334,9 @@ def command_install(args):
                   "while the workflow is always on")
             print(f"claude env   {RUNTIMES['claude']['root'] / 'settings.json'} env.{AUTO_BACKGROUND[0]}="
                   f"{AUTO_BACKGROUND[1]}, unless you set it")
+        for path, _, wanted in gates(set(state["runtimes"]) | set(runtimes)):
+            if wanted:
+                print(f"{'':6} hook  {path} PreToolUse -> {GATE}")
         return
     for path, (runtime, kind, source, manual) in files.items():
         write(path, kind, source, manual, runtime)
@@ -322,6 +361,7 @@ def command_install(args):
         shutil.copyfile(PACKAGE / "config" / "models.toml", REGISTRY)
     state["runtimes"] = sorted(set(state["runtimes"]) | set(runtimes))
     sync_claude_settings(state)
+    sync_gates(state["runtimes"])
     save_installs(state)
     counts = {mode: sum(1 for name in names if modes()[name] == mode) for mode in ("always", "auto", "manual")}
     print(f"Installed {len(names)} skills ({counts['always']} always on, {counts['auto']} auto, {counts['manual']} manual) "
@@ -345,9 +385,11 @@ def command_uninstall(args):
             state["files"].remove(str(path))
     state["runtimes"] = [runtime for runtime in state["runtimes"] if runtime not in runtimes]
     sync_claude_settings(state)
+    sync_gates(state["runtimes"])
     if not state["runtimes"]:
         for path in bins():
             path.unlink(missing_ok=True)
+        GATE_STATE.unlink(missing_ok=True)
         INSTALLS.unlink(missing_ok=True)
     else:
         save_installs(state)
