@@ -53,8 +53,12 @@ fallback = ["sol", "grok"]
 
 [models.sol]
 provider = "codex"
-model = "gpt-6.1-sol"
+model = "gpt-6.2-sol"
 fallback = ["grok", "opus"]
+
+[models.astra]
+provider = "codex"
+model = "gpt-6.2-astra"
 
 [models.grok]
 provider = "grok"
