@@ -98,7 +98,9 @@ def codex_interactive(choice, read_only, cwd, session):
     tier = ["-c", 'service_tier="priority"'] if choice["speed"] == "fast" else []
     network = [] if read_only else ["-c", "sandbox_workspace_write.network_access=true"]
     sandbox = ["-s", "read-only"] if read_only else ["--approve-for-me"]
+    # The update prompt would sit in the pane and take the brief's Enter as "Update now".
     return ["codex", "-m", choice["model"], "-c", f'model_reasoning_effort="{choice["effort"]}"', *tier,
+            "-c", "check_for_update_on_startup=false",
             *sandbox, *network, "-C", str(cwd)]
 
 
