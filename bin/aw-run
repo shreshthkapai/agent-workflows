@@ -319,6 +319,25 @@ def hc_started(name, cwd, command):
         raise
 
 
+def hc_send(address, brief):
+    deadline = time.monotonic() + 60
+    while True:
+        result = subprocess.run(["hc", "send", address, brief, "--wait", "--timeout", "30", "--json"],
+                                capture_output=True, text=True)
+        data = json_or(result.stdout, None)
+        if not result.returncode and isinstance(data, dict):
+            return data
+        message = result.stderr.strip() or result.stdout.strip() or "hc returned no result"
+        error = json_or(message, None)
+        hint = (error.get("error") or {}).get("hint", "") if isinstance(error, dict) else ""
+        # Herdr can report a CLI's status before its screen settles, and then refuses the paste.
+        if "nothing was typed" not in hint:
+            raise RuntimeError(message)
+        if time.monotonic() >= deadline:
+            raise NotStarted(message)
+        time.sleep(1)
+
+
 def hc_kill(address):
     subprocess.run(["hc", "kill", address], capture_output=True, text=True)
 
@@ -332,7 +351,7 @@ def run_herdr(provider, choice, brief, read_only, cwd, role, seat, session):
     except (OSError, RuntimeError) as error:
         raise NotStarted(str(error)) from error
     try:
-        sent = hc("send", address, brief, "--wait", "--timeout", "30", "--json")
+        sent = hc_send(address, brief)
         result = sent.get("wait") or (hc_wait(address) if sent.get("started") else {"reason": "not_started"})
         notified = False
         while True:
