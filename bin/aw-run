@@ -436,6 +436,21 @@ def run(choice, brief, read_only, cwd, role, seat):
     return (text or result.stderr) if failed else text, failed, limited, outcome
 
 
+def review_pointer(brief, report):
+    """The written sources the lead should review this delegate's work against, from `aw-check`, or nothing."""
+    if os.environ.get("AW_CHECKING") or not shutil.which("aw-check"):
+        return ""
+    with tempfile.TemporaryDirectory(prefix="aw-review-") as scratch:
+        Path(scratch, "brief.md").write_text(brief)
+        Path(scratch, "report.md").write_text(report)
+        try:
+            found = subprocess.run(["aw-check", "--review", str(Path(scratch, "brief.md")), str(Path(scratch, "report.md"))],
+                                   capture_output=True, text=True, timeout=60).stdout.strip()
+        except subprocess.TimeoutExpired:
+            return ""
+    return f"\n\n{found}" if found else ""
+
+
 def log(entry):
     LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOG.open("a") as handle:
@@ -528,6 +543,7 @@ def main():
         following = registry["models"][attempts[attempt + 1]]
         print(f"aw-run: {entry['provider']} hit a usage limit; retrying on {following['provider']} "
               f"{following['model']}", file=sys.stderr)
+    text += review_pointer(brief, text)
     if args.out:
         args.out.write_text(text)
     print(text)

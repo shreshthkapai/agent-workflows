@@ -58,6 +58,7 @@ ALWAYS_CAPABLE = {"workflow"}
 # turn until the command's own timeout of 2 to 10 minutes. Codex yields after about a second and Grok after 30 seconds.
 AUTO_BACKGROUND = ("CLAUDE_CODE_AUTO_BACKGROUND_TIMEOUT_MS", "30000")
 GATE = BIN / "aw-gate"
+CHECK = BIN / "aw-check"
 GATE_STATE = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local" / "state")) / "agent-workflows" / "gate.json"
 
 
@@ -208,44 +209,55 @@ def write(path, kind, source, manual, runtime):
 def bins():
     """`aw` links back to this checkout so it can reinstall from it. `aw-run` is a standalone copy."""
     return {BIN / "aw": ("link", PACKAGE / "bin" / "aw"), BIN / "aw-run": ("copy", PACKAGE / "bin" / "aw-run"),
-            GATE: ("copy", PACKAGE / "bin" / "aw-gate")}
+            GATE: ("copy", PACKAGE / "bin" / "aw-gate"), CHECK: ("copy", PACKAGE / "bin" / "aw-check")}
 
 
 def gates(runtimes):
-    """Each CLI's hook file, the matcher for its shell tool, and whether `aw-gate` belongs there. Grok also reads
-    Claude Code's settings, so it gets its own file only when Claude is not installed."""
+    """Each CLI's hook file, the matcher for its shell tool, and whether aw's hooks belong there. Grok also reads Claude Code's
+    settings, so it gets its own file only when Claude is not installed."""
     return [(RUNTIMES["claude"]["root"] / "settings.json", "Bash", "claude" in runtimes),
             (RUNTIMES["codex"]["root"] / "hooks.json", "^Bash$", "codex" in runtimes),
             (RUNTIMES["grok"]["root"] / "hooks" / "agent-workflows.json", "Bash",
              "grok" in runtimes and "claude" not in runtimes)]
 
 
+# `aw-gate` pauses outgoing shell commands. `aw-check` points the agent at a new message's written sources.
+HOOKS = [("PreToolUse", True, GATE, 10), ("UserPromptSubmit", False, CHECK, 60)]
+
+
 def sync_gates(runtimes):
-    """Add `aw-gate` as a PreToolUse hook where it belongs and remove it elsewhere. Also drops the `aw-route` hook
-    that installs wrote before the Agent tool was turned off."""
-    ours = {str(GATE), str(BIN / "aw-route")}
+    """Add aw's hooks where they belong and remove them elsewhere. Also drops hooks earlier installs wrote:
+    `aw-route`, and `aw-check` on Stop or on file edits."""
+    ours = {str(GATE), str(CHECK), str(BIN / "aw-route")}
     for path, matcher, wanted in gates(runtimes):
         try:
             data = json.loads(path.read_text()) if path.is_file() else {}
         except json.JSONDecodeError:
-            print(f"aw: {path} is not valid JSON, so the outgoing-work hook was not changed there.")
+            print(f"aw: {path} is not valid JSON, so aw's hooks were not changed there.")
             continue
         before = json.dumps(data)
-        entries = []
-        for entry in data.get("hooks", {}).get("PreToolUse", []):
-            kept = [hook for hook in entry.get("hooks", []) if hook.get("command") not in ours]
-            if len(kept) == len(entry.get("hooks", [])):
-                entries.append(entry)
-            elif kept:
-                entries.append({**entry, "hooks": kept})
-        if wanted:
-            entries.append({"matcher": matcher, "hooks": [{"type": "command", "command": str(GATE), "timeout": 10}]})
-        if entries:
-            data.setdefault("hooks", {})["PreToolUse"] = entries
-        elif "PreToolUse" in data.get("hooks", {}):
-            del data["hooks"]["PreToolUse"]
-            if not data["hooks"]:
-                del data["hooks"]
+        hooks = data.get("hooks", {})
+        for event in ("PreToolUse", "UserPromptSubmit", "Stop"):
+            entries = []
+            for entry in hooks.get(event, []):
+                kept = [hook for hook in entry.get("hooks", []) if hook.get("command") not in ours]
+                if len(kept) == len(entry.get("hooks", [])):
+                    entries.append(entry)
+                elif kept:
+                    entries.append({**entry, "hooks": kept})
+            if wanted:
+                for hook_event, on_shell, command, timeout in HOOKS:
+                    if hook_event == event:
+                        hook = {"hooks": [{"type": "command", "command": str(command), "timeout": timeout}]}
+                        entries.append({"matcher": matcher, **hook} if on_shell else hook)
+            if entries:
+                hooks[event] = entries
+            else:
+                hooks.pop(event, None)
+        if hooks:
+            data["hooks"] = hooks
+        else:
+            data.pop("hooks", None)
         if json.dumps(data) == before:
             continue
         if not data and path.name != "settings.json":
@@ -336,7 +348,8 @@ def command_install(args):
                   f"{AUTO_BACKGROUND[1]}, unless you set it")
         for path, _, wanted in gates(set(state["runtimes"]) | set(runtimes)):
             if wanted:
-                print(f"{'':6} hook  {path} PreToolUse -> {GATE}")
+                for event, tool, command, _ in HOOKS:
+                    print(f"{'':6} hook  {path} {event} -> {command}")
         return
     for path, (runtime, kind, source, manual) in files.items():
         write(path, kind, source, manual, runtime)

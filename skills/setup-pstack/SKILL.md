@@ -60,6 +60,16 @@ fallback = ["grok", "opus"]
 provider = "codex"
 model = "gpt-6.2-astra"
 
+[models.luna]
+provider = "codex"
+model = "gpt-6-luna"
+fallback = ["haiku"]
+
+[models.haiku]
+provider = "claude"
+model = "haiku"
+fallback = ["sol", "grok"]
+
 [models.grok]
 provider = "grok"
 model = "grok-4.7"
@@ -81,6 +91,7 @@ architect_runners = ["opus", "sol"]
 interrogate_reviewers = ["opus", "sol"]
 comment_sicko = "sol"
 delegate = "sol"
+source_check = "luna:medium"
 ```
 
 ### 6. Confirm
