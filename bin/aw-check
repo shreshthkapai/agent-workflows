@@ -17,8 +17,9 @@ import sys
 import tempfile
 import tomllib
 
+# The list of touched sources and the message are sent whole. Only the recent chat is cut: a 200,000-character window
+# found fewer sources than this one in testing, because old chat buries the signal the list already carries.
 EARLIER_CHARS = 12000
-MESSAGE_CHARS = 10000
 SYSTEM = "You point a coding agent at the files it should read. Reply with JSON only."
 SOURCES = """A written source is anything the work rests on that exists in writing: a file, doc, note, design, \
 mockup, spec, plan, artifact, log, or test output. Something only said in the conversation is not a source.
@@ -169,7 +170,7 @@ def real(source, names):
     # The model sometimes drops the start of a long path, so match it to the end of one the session touched.
     tail = "/" + name.lstrip("/~")
     whole = name if name in names else next((touched_name for touched_name in names if touched_name.endswith(tail)), name)
-    if "/" not in name or not Path(os.path.expanduser(whole)).exists():
+    if "/" not in name or not Path(os.path.expanduser(whole)).is_file():
         return None
     return f"{whole}: {about}" if about else whole
 
@@ -186,7 +187,7 @@ def point(history, message, project):
     names = list(dict.fromkeys(named_in(message) + (touched(history) if history else [])))
     parts = {"project": project, "touched": "\n".join(names),
              "earlier": "\n".join(f"[{kind}] {text}" for kind, text in events)[-EARLIER_CHARS:],
-             "message": message[:MESSAGE_CHARS]}
+             "message": message}
     found = judge(re.sub(r"\{(project|touched|earlier|message)\}", lambda match: parts[match.group(1)], SOURCES))
     return [source for source in (real(source, names) for source in found.get("sources") or []) if source]
 

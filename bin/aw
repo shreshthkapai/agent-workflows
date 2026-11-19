@@ -372,6 +372,8 @@ def command_install(args):
     if not REGISTRY.exists():  # Never overwrite the user's model choices.
         CONFIG.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(PACKAGE / "config" / "models.toml", REGISTRY)
+    else:
+        add_missing_roles()
     state["runtimes"] = sorted(set(state["runtimes"]) | set(runtimes))
     sync_claude_settings(state)
     sync_gates(state["runtimes"])
@@ -467,6 +469,44 @@ def resolve(role, registry_path=None):
     if isinstance(seats, dict) and "pool" in seats:
         return [{**seat, "pool": True} for seat in seats["pool"]], None
     return (seats if isinstance(seats, list) else [seats]), None
+
+
+def add_missing_roles():
+    """Add the roles a newer release ships, and the models they name, to an existing registry. Roles and models the
+    user already has stay exactly as they are."""
+    shipped_text = (PACKAGE / "config" / "models.toml").read_text()
+    shipped, text = tomllib.loads(shipped_text), REGISTRY.read_text()
+    mine = tomllib.loads(text)
+    missing = [role for role in shipped["roles"] if role not in mine.get("roles", {})]
+    if not missing:
+        return
+    entries = []
+    for role in missing:
+        value = shipped["roles"][role]
+        entries += value.get("pool", []) if isinstance(value, dict) else value if isinstance(value, list) else [value]
+    queue, needed = [entry.split(":")[0] for entry in entries], []
+    while queue:
+        name = queue.pop(0)
+        if name == "inherit" or name in needed or name in mine.get("models", {}) or name not in shipped["models"]:
+            continue
+        needed.append(name)
+        fallback = shipped["models"][name].get("fallback", [])
+        queue += fallback if isinstance(fallback, list) else [fallback]
+    tables = "".join(re.search(rf"^\[models\.{re.escape(name)}\]\n(?:(?!\[).*\n)*", shipped_text, re.M).group(0).rstrip("\n")
+                     + "\n\n" for name in needed)
+    lines = "".join(re.search(rf"^{re.escape(role)}\s*=.*$", shipped_text, re.M).group(0) + "\n" for role in missing)
+    head = re.search(r"^\[roles\]", text, re.M)
+    updated = (text[:head.start()] + tables + text[head.start():] if head and tables else text + tables)
+    updated = updated.rstrip("\n") + "\n" + lines
+    with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as draft:
+        draft.write(updated)
+    errors = [error for error in (resolve(role, draft.name)[1] for role in missing) if error]
+    os.unlink(draft.name)
+    if errors:
+        print(f"aw: could not add new roles {', '.join(missing)} to {REGISTRY}: {errors[0]}")
+        return
+    REGISTRY.write_text(updated)
+    print(f"Added new roles to {REGISTRY}: {', '.join(missing)}.")
 
 
 def command_models(args):
